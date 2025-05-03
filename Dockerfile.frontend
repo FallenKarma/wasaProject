@@ -1,0 +1,17 @@
+# Development Dockerfile for Vue
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY frontend/package*.json ./
+RUN npm install
+
+# Copy source code
+COPY frontend/ .
+
+# Expose dev server port
+EXPOSE 4173
+
+# Start development server with hot-reload
+CMD ["npm", "run", "dev", "--", "--host"]

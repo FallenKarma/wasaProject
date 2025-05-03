@@ -1,0 +1,742 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"io"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/fallenkarma/wasatext/internal/models"
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+)
+
+// PostgresRepository implements the Repository interface
+type PostgresRepository struct {
+	db          *sql.DB
+	uploadPath  string
+}
+
+// NewPostgresRepository creates a new PostgresRepository
+func NewPostgresRepository(connStr string, uploadPath string) (*PostgresRepository, error) {
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check connection
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+
+	// Create upload directory if it doesn't exist
+	if err := os.MkdirAll(uploadPath, 0755); err != nil {
+		return nil, err
+	}
+
+	return &PostgresRepository{
+		db:          db,
+		uploadPath:  uploadPath,
+	}, nil
+}
+
+// Close closes the database connection
+func (r *PostgresRepository) Close() error {
+	return r.db.Close()
+}
+
+// CreateUser implements UserRepository.CreateUser
+func (r *PostgresRepository) CreateUser(ctx context.Context, name string) (*models.User, error) {
+	// Check if user with this name already exists
+	existingUser, _ := r.GetUserByName(ctx, name)
+	if existingUser != nil {
+		return existingUser, nil
+	}
+
+	// Generate a unique ID
+	id := uuid.New().String()
+
+	// Insert the new user
+	query := "INSERT INTO users (id, name) VALUES ($1, $2)"
+	_, err := r.db.ExecContext(ctx, query, id, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.User{
+		ID:   id,
+		Name: name,
+	}, nil
+}
+
+// GetUserByID implements UserRepository.GetUserByID
+func (r *PostgresRepository) GetUserByID(ctx context.Context, id string) (*models.User, error) {
+	query := "SELECT id, name, photo_url FROM users WHERE id = $1"
+	row := r.db.QueryRowContext(ctx, query, id)
+
+	var user models.User
+	var photoURL sql.NullString
+	err := row.Scan(&user.ID, &user.Name, &photoURL)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if photoURL.Valid {
+		user.PhotoURL = photoURL.String
+	}
+
+	return &user, nil
+}
+
+// GetUserByName implements UserRepository.GetUserByName
+func (r *PostgresRepository) GetUserByName(ctx context.Context, name string) (*models.User, error) {
+	query := "SELECT id, name, photo_url FROM users WHERE name = $1"
+	row := r.db.QueryRowContext(ctx, query, name)
+
+	var user models.User
+	var photoURL sql.NullString
+	err := row.Scan(&user.ID, &user.Name, &photoURL)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if photoURL.Valid {
+		user.PhotoURL = photoURL.String
+	}
+
+	return &user, nil
+}
+
+// UpdateUsername implements UserRepository.UpdateUsername
+func (r *PostgresRepository) UpdateUsername(ctx context.Context, userID string, newName string) error {
+	// Check if name is already in use
+	existingUser, _ := r.GetUserByName(ctx, newName)
+	if existingUser != nil && existingUser.ID != userID {
+		return errors.New("username already in use")
+	}
+
+	query := "UPDATE users SET name = $1 WHERE id = $2"
+	_, err := r.db.ExecContext(ctx, query, newName, userID)
+	return err
+}
+
+// SaveUserPhoto implements UserRepository.SaveUserPhoto
+func (r *PostgresRepository) SaveUserPhoto(ctx context.Context, userID string, photo multipart.File) (string, error) {
+	// Create user photos directory if it doesn't exist
+	userPhotosDir := filepath.Join(r.uploadPath, "user_photos")
+	if err := os.MkdirAll(userPhotosDir, 0755); err != nil {
+		return "", err
+	}
+
+	// Generate a unique filename
+	filename := fmt.Sprintf("%s_%d.jpg", userID, time.Now().Unix())
+	filepath := filepath.Join(userPhotosDir, filename)
+
+	// Save the file
+	dst, err := os.Create(filepath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, photo); err != nil {
+		return "", err
+	}
+
+	// Update the user's photo URL in the database
+	relativePath := fmt.Sprintf("/uploads/user_photos/%s", filename)
+	query := "UPDATE users SET photo_url = $1 WHERE id = $2"
+	_, err = r.db.ExecContext(ctx, query, relativePath, userID)
+	if err != nil {
+		return "", err
+	}
+
+	return relativePath, nil
+}
+
+// GetAllUsers implements UserRepository.GetAllUsers
+func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]models.User, error) {
+	query := "SELECT id, name, photo_url FROM users"
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		var photoURL sql.NullString
+		if err := rows.Scan(&user.ID, &user.Name, &photoURL); err != nil {
+			return nil, err
+		}
+		if photoURL.Valid {
+			user.PhotoURL = photoURL.String
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
+// CreateDirectConversation implements ConversationRepository.CreateDirectConversation
+func (r *PostgresRepository) CreateDirectConversation(ctx context.Context, userID1, userID2 string) (*models.Conversation, error) {
+	// Check if a direct conversation already exists between these users
+	query := `
+		SELECT c.id 
+		FROM conversations c
+		JOIN conversation_participants cp1 ON c.id = cp1.conversation_id
+		JOIN conversation_participants cp2 ON c.id = cp2.conversation_id
+		WHERE c.type = 'direct' 
+		AND cp1.user_id = $1 
+		AND cp2.user_id = $2
+		AND (SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = c.id) = 2
+	`
+	row := r.db.QueryRowContext(ctx, query, userID1, userID2)
+
+	var conversationID string
+	err := row.Scan(&conversationID)
+	if err == nil {
+		// Conversation exists, return it
+		return r.GetConversationByID(ctx, conversationID)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		// Unexpected error
+		return nil, err
+	}
+
+	// Start a transaction
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Create a new conversation
+	id := uuid.New().String()
+	insertConvQuery := "INSERT INTO conversations (id, type) VALUES ($1, $2)"
+	_, err = tx.ExecContext(ctx, insertConvQuery, id, models.DirectConversation)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add participants
+	insertPartQuery := "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)"
+	_, err = tx.ExecContext(ctx, insertPartQuery, id, userID1)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, insertPartQuery, id, userID2)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetConversationByID(ctx, id)
+}
+
+// CreateGroupConversation implements ConversationRepository.CreateGroupConversation
+func (r *PostgresRepository) CreateGroupConversation(ctx context.Context, name string, participants []string) (*models.Conversation, error) {
+	// Start a transaction
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// Create a new conversation
+	id := uuid.New().String()
+	insertConvQuery := "INSERT INTO conversations (id, name, type) VALUES ($1, $2, $3)"
+	_, err = tx.ExecContext(ctx, insertConvQuery, id, name, models.GroupConversation)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add participants
+	insertPartQuery := "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)"
+	for _, userID := range participants {
+		_, err = tx.ExecContext(ctx, insertPartQuery, id, userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetConversationByID(ctx, id)
+}
+
+// GetConversationByID implements ConversationRepository.GetConversationByID
+func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string) (*models.Conversation, error) {
+	// Get conversation details
+	convQuery := "SELECT id, name, type, photo_url FROM conversations WHERE id = $1"
+	convRow := r.db.QueryRowContext(ctx, convQuery, id)
+
+	var conv models.Conversation
+	var name, photoURL sql.NullString
+	var convType string
+	err := convRow.Scan(&conv.ID, &name, &convType, &photoURL)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if name.Valid {
+		conv.Name = name.String
+	}
+	if photoURL.Valid {
+		conv.PhotoURL = photoURL.String
+	}
+	conv.Type = models.ConversationType(convType)
+
+	// Get participants
+	partQuery := "SELECT user_id FROM conversation_participants WHERE conversation_id = $1"
+	partRows, err := r.db.QueryContext(ctx, partQuery, id)
+	if err != nil {
+		return nil, err
+	}
+	defer partRows.Close()
+
+	for partRows.Next() {
+		var userID string
+		if err := partRows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		conv.Participants = append(conv.Participants, userID)
+	}
+	if err := partRows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Get messages
+	messages, err := r.GetMessagesByConversationID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	conv.Messages = messages
+
+	// Set the last message if there are any messages
+	if len(messages) > 0 {
+		lastMsg := messages[0]  // Assuming messages are ordered by timestamp desc
+		conv.LastMessage = &lastMsg
+	}
+
+	// If this is a direct conversation and has no name, set the name to the other user's name
+	if conv.Type == models.DirectConversation && !name.Valid && len(conv.Participants) == 2 {
+		// Find the other user in the conversation
+		var otherUserID string
+		for _, participantID := range conv.Participants {
+			if participantID != ctx.Value("userID").(string) {
+				otherUserID = participantID
+				break
+			}
+		}
+
+		// Get the other user's name
+		if otherUserID != "" {
+			otherUser, err := r.GetUserByID(ctx, otherUserID)
+			if err == nil && otherUser != nil {
+				conv.Name = otherUser.Name
+			}
+		}
+	}
+
+	return &conv, nil
+}
+
+// GetConversationsByUserID implements ConversationRepository.GetConversationsByUserID
+func (r *PostgresRepository) GetConversationsByUserID(ctx context.Context, userID string) ([]models.Conversation, error) {
+	// Find all conversations where the user is a participant
+	query := `
+		SELECT c.id 
+		FROM conversations c
+		JOIN conversation_participants cp ON c.id = cp.conversation_id
+		WHERE cp.user_id = $1
+	`
+	rows, err := r.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conversations []models.Conversation
+	for rows.Next() {
+		var convID string
+		if err := rows.Scan(&convID); err != nil {
+			return nil, err
+		}
+
+		conv, err := r.GetConversationByID(ctx, convID)
+		if err != nil {
+			return nil, err
+		}
+		if conv != nil {
+			conversations = append(conversations, *conv)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return conversations, nil
+}
+
+// AddUserToGroup implements ConversationRepository.AddUserToGroup
+func (r *PostgresRepository) AddUserToGroup(ctx context.Context, groupID, userID string) error {
+	// Check if the conversation is a group
+	convQuery := "SELECT type FROM conversations WHERE id = $1"
+	var convType string
+	err := r.db.QueryRowContext(ctx, convQuery, groupID).Scan(&convType)
+	if err != nil {
+		return err
+	}
+	if convType != string(models.GroupConversation) {
+		return errors.New("conversation is not a group")
+	}
+
+	// Check if user is already in the group
+	checkQuery := "SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2"
+	var count int
+	err = r.db.QueryRowContext(ctx, checkQuery, groupID, userID).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count > 0 {
+		return errors.New("user is already in the group")
+	}
+
+	// Add user to the group
+	insertQuery := "INSERT INTO conversation_participants (conversation_id, user_id) VALUES ($1, $2)"
+	_, err = r.db.ExecContext(ctx, insertQuery, groupID, userID)
+	return err
+}
+
+// RemoveUserFromGroup implements ConversationRepository.RemoveUserFromGroup
+func (r *PostgresRepository) RemoveUserFromGroup(ctx context.Context, groupID, userID string) error {
+	// Check if the conversation is a group
+	convQuery := "SELECT type FROM conversations WHERE id = $1"
+	var convType string
+	err := r.db.QueryRowContext(ctx, convQuery, groupID).Scan(&convType)
+	if err != nil {
+		return err
+	}
+	if convType != string(models.GroupConversation) {
+		return errors.New("conversation is not a group")
+	}
+
+	// Remove user from the group
+	deleteQuery := "DELETE FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2"
+	result, err := r.db.ExecContext(ctx, deleteQuery, groupID, userID)
+	if err != nil {
+		return err
+	}
+
+	// Check if any rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return errors.New("user is not in the group")
+	}
+
+	return nil
+}
+
+// UpdateGroupName implements ConversationRepository.UpdateGroupName
+func (r *PostgresRepository) UpdateGroupName(ctx context.Context, groupID, name string) error {
+	// Check if the conversation is a group
+	convQuery := "SELECT type FROM conversations WHERE id = $1"
+	var convType string
+	err := r.db.QueryRowContext(ctx, convQuery, groupID).Scan(&convType)
+	if err != nil {
+		return err
+	}
+	if convType != string(models.GroupConversation) {
+		return errors.New("conversation is not a group")
+	}
+
+	// Update the group name
+	updateQuery := "UPDATE conversations SET name = $1 WHERE id = $2"
+	_, err = r.db.ExecContext(ctx, updateQuery, name, groupID)
+	return err
+}
+
+// SaveGroupPhoto implements ConversationRepository.SaveGroupPhoto
+func (r *PostgresRepository) SaveGroupPhoto(ctx context.Context, groupID string, photo multipart.File) (string, error) {
+	// Check if the conversation is a group
+	convQuery := "SELECT type FROM conversations WHERE id = $1"
+	var convType string
+	err := r.db.QueryRowContext(ctx, convQuery, groupID).Scan(&convType)
+	if err != nil {
+		return "", err
+	}
+	if convType != string(models.GroupConversation) {
+		return "", errors.New("conversation is not a group")
+	}
+
+	// Create group photos directory if it doesn't exist
+	groupPhotosDir := filepath.Join(r.uploadPath, "group_photos")
+	if err := os.MkdirAll(groupPhotosDir, 0755); err != nil {
+		return "", err
+	}
+
+	// Generate a unique filename
+	filename := fmt.Sprintf("%s_%d.jpg", groupID, time.Now().Unix())
+	filepath := filepath.Join(groupPhotosDir, filename)
+
+	// Save the file
+	dst, err := os.Create(filepath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, photo); err != nil {
+		return "", err
+	}
+
+	// Update the group's photo URL in the database
+	relativePath := fmt.Sprintf("/uploads/group_photos/%s", filename)
+	query := "UPDATE conversations SET photo_url = $1 WHERE id = $2"
+	_, err = r.db.ExecContext(ctx, query, relativePath, groupID)
+	if err != nil {
+		return "", err
+	}
+
+	return relativePath, nil
+}
+
+// CreateMessage implements MessageRepository.CreateMessage
+func (r *PostgresRepository) CreateMessage(ctx context.Context, msg models.Message, conversationID string) (*models.Message, error) {
+	// Start a transaction
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// If no ID provided, generate one
+	if msg.ID == "" {
+		msg.ID = uuid.New().String()
+	}
+
+	// If no timestamp provided, use current time
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	// Insert the message
+	msgQuery := `
+		INSERT INTO messages (id, sender_id, conversation_id, content, type, status, reply_to, timestamp)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`
+	_, err = tx.ExecContext(ctx, msgQuery, msg.ID, msg.Sender, conversationID, msg.Content, msg.Type, msg.Status, msg.ReplyTo, msg.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update the last activity timestamp of the conversation
+	updateConvQuery := "UPDATE conversations SET last_activity = $1 WHERE id = $2"
+	_, err = tx.ExecContext(ctx, updateConvQuery, msg.Timestamp, conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return &msg, nil
+}
+
+// GetMessagesByConversationID implements MessageRepository.GetMessagesByConversationID
+func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, conversationID string) ([]models.Message, error) {
+	// Get messages
+	query := `
+		SELECT id, sender_id, content, type, status, reply_to, timestamp
+		FROM messages
+		WHERE conversation_id = $1 AND deleted_at IS NULL
+		ORDER BY timestamp DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages []models.Message
+	for rows.Next() {
+		var msg models.Message
+		var replyTo sql.NullString
+		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp); err != nil {
+			return nil, err
+		}
+		if replyTo.Valid {
+			msg.ReplyTo = replyTo.String
+		}
+		messages = append(messages, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return messages, nil
+}
+
+// GetMessageByID implements MessageRepository.GetMessageByID
+func (r *PostgresRepository) GetMessageByID(ctx context.Context, id string) (*models.Message, error) {
+	query := `
+		SELECT id, sender_id, content, type, status, reply_to, timestamp, conversation_id
+		FROM messages
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+	row := r.db.QueryRowContext(ctx, query, id)
+
+	var msg models.Message
+	var replyTo, conversationID sql.NullString
+	err := row.Scan(&msg.ID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp, &conversationID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if replyTo.Valid {
+		msg.ReplyTo = replyTo.String
+	}
+
+	return &msg, nil
+}
+
+// DeleteMessage implements MessageRepository.DeleteMessage
+func (r *PostgresRepository) DeleteMessage(ctx context.Context, id string) error {
+	// Soft delete by setting the deleted_at timestamp
+	query := "UPDATE messages SET deleted_at = $1 WHERE id = $2"
+	_, err := r.db.ExecContext(ctx, query, time.Now(), id)
+	return err
+}
+
+// UpdateMessageStatus implements MessageRepository.UpdateMessageStatus
+func (r *PostgresRepository) UpdateMessageStatus(ctx context.Context, id string, status models.MessageStatus) error {
+	query := "UPDATE messages SET status = $1 WHERE id = $2"
+	_, err := r.db.ExecContext(ctx, query, status, id)
+	return err
+}
+
+// SaveMessagePhoto implements MessageRepository.SaveMessagePhoto
+func (r *PostgresRepository) SaveMessagePhoto(ctx context.Context, senderID string, photo multipart.File) (string, error) {
+	// Create message photos directory if it doesn't exist
+	msgPhotosDir := filepath.Join(r.uploadPath, "message_photos")
+	if err := os.MkdirAll(msgPhotosDir, 0755); err != nil {
+		return "", err
+	}
+
+	// Generate a unique filename
+	filename := fmt.Sprintf("%s_%d.jpg", senderID, time.Now().Unix())
+	filepath := filepath.Join(msgPhotosDir, filename)
+
+	// Save the file
+	dst, err := os.Create(filepath)
+	if err != nil {
+		return "", err
+	}
+	defer dst.Close()
+
+	if _, err = io.Copy(dst, photo); err != nil {
+		return "", err
+	}
+
+	// Return the relative path to the file
+	relativePath := fmt.Sprintf("/uploads/message_photos/%s", filename)
+	return relativePath, nil
+}
+
+// AddReaction implements ReactionRepository.AddReaction
+func (r *PostgresRepository) AddReaction(ctx context.Context, messageID, userID, emoji string) error {
+	// Check if reaction already exists
+	checkQuery := "SELECT COUNT(*) FROM reactions WHERE message_id = $1 AND user_id = $2"
+	var count int
+	err := r.db.QueryRowContext(ctx, checkQuery, messageID, userID).Scan(&count)
+	if err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// Update existing reaction
+		updateQuery := "UPDATE reactions SET emoji = $1 WHERE message_id = $2 AND user_id = $3"
+		_, err = r.db.ExecContext(ctx, updateQuery, emoji, messageID, userID)
+		return err
+	}
+
+	// Insert new reaction
+	insertQuery := "INSERT INTO reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)"
+	_, err = r.db.ExecContext(ctx, insertQuery, messageID, userID, emoji)
+	return err
+}
+
+// RemoveReaction implements ReactionRepository.RemoveReaction
+func (r *PostgresRepository) RemoveReaction(ctx context.Context, messageID, userID string) error {
+	deleteQuery := "DELETE FROM reactions WHERE message_id = $1 AND user_id = $2"
+	result, err := r.db.ExecContext(ctx, deleteQuery, messageID, userID)
+	if err != nil {
+		return err
+	}
+
+	// Check if any rows were affected
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return errors.New("reaction not found")
+	}
+
+	return nil
+}
+
+// GetReactionsByMessageID implements ReactionRepository.GetReactionsByMessageID
+func (r *PostgresRepository) GetReactionsByMessageID(ctx context.Context, messageID string) ([]models.Reaction, error) {
+	query := "SELECT message_id, user_id, emoji FROM reactions WHERE message_id = $1"
+	rows, err := r.db.QueryContext(ctx, query, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reactions []models.Reaction
+	for rows.Next() {
+		var reaction models.Reaction
+		if err := rows.Scan(&reaction.MessageID, &reaction.UserID, &reaction.Emoji); err != nil {
+			return nil, err
+		}
+		reactions = append(reactions, reaction)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return reactions, nil
+}

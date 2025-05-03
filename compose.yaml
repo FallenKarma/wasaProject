@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    environment:
+      - DB_CONNECTION_STRING=postgres://root:root@db:5432/wasaText?sslmode=disable
+    # This mounts your .env file from the host to the container
+    volumes:
+      - ./.env:/.env
+
+  db:
+    build:
+      context: . # Using the project root as context so we can access the internal directory
+      dockerfile: Dockerfile.postgres # You'll need to save the DB Dockerfile with this name
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=wasaText
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    volumes:
+      - ./webui:/app
+      - /app/node_modules
+    ports:
+      - "4173:4173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8080
+volumes:
+  postgres_data: # This ensures your database data persists between container restarts
