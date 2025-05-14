@@ -58,11 +58,23 @@ const (
 type Conversation struct {
 	ID           string          `json:"id"`
 	Name         string          `json:"name"`
-	Type         ConversationType `json:"-"`
+	Type         ConversationType `json:"type"`
 	PhotoURL     string          `json:"photo,omitempty"`
-	Participants []string        `json:"participants"`
+	Participants []Participant        `json:"participants"`
 	LastMessage  *Message        `json:"lastMessage,omitempty"`
 	Messages     []Message       `json:"messages,omitempty"`
+}
+
+type Participant struct {
+    ID   string `json:"id"`
+    Name string `json:"name"`
+}
+
+// CreateConversationRequest represents the request to create a new conversation
+type CreateConversationRequest struct {
+	Participants []string `json:"participants"` // UserIDs of participants (excluding the creator)
+	Type         ConversationType `json:"type"`
+	Name         string          `json:"name"`
 }
 
 // LoginRequest represents the login request body

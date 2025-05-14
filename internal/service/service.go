@@ -155,8 +155,8 @@ func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID,
 
 	// Check if the user is a participant in the conversation
 	isParticipant := false
-	for _, id := range conv.Participants {
-		if id == senderID {
+	for _, participant := range conv.Participants {
+		if participant.ID == senderID {
 			isParticipant = true
 			break
 		}
@@ -193,8 +193,8 @@ func (s *Service) SendPhotoMessage(ctx context.Context, senderID, conversationID
 
 	// Check if the user is a participant in the conversation
 	isParticipant := false
-	for _, id := range conv.Participants {
-		if id == senderID {
+	for _, participant := range conv.Participants {
+		if participant.ID == senderID {
 			isParticipant = true
 			break
 		}
@@ -246,8 +246,8 @@ func (s *Service) ForwardMessage(ctx context.Context, userID, messageID, targetC
 
 	// Check if the user is a participant in the target conversation
 	isParticipant := false
-	for _, id := range targetConv.Participants {
-		if id == userID {
+	for _, participant := range targetConv.Participants {
+		if participant.ID == userID {
 			isParticipant = true
 			break
 		}

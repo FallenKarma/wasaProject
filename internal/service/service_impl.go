@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"mime/multipart"
 	"time"
 
@@ -56,10 +57,39 @@ func (s *WASATextService) SetUserPhoto(ctx context.Context, userID string, photo
 	return s.repo.SaveUserPhoto(ctx, userID, photo)
 }
 
-// GetUserConversations implements ConversationService.GetUserConversations
-func (s *WASATextService) GetUserConversations(ctx context.Context, userID string) ([]models.Conversation, error) {
-	return s.repo.GetConversationsByUserID(ctx, userID)
+// CreateConversation creates a new conversation between users
+func (s *Service) CreateConversation(ctx context.Context, creatorID string, participantIDs []string, Type models.ConversationType, Name string) (*models.Conversation, error) {
+	// Validate participants exist
+	for _, participantID := range participantIDs {
+		if _, err := s.GetUser(ctx, participantID); err != nil {
+			return nil, fmt.Errorf("invalid participant ID: %s", participantID)
+		}
+	}
+
+	// Create list of all participants including the creator
+	allParticipants := append([]string{creatorID}, participantIDs...)
+
+
+	var conv *models.Conversation
+	var err error
+	if Type == models.DirectConversation {
+		// Check if a DM conversation already exists between these two users
+		conv, err = s.repo.CreateDirectConversation(ctx, creatorID, participantIDs[0])
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		conv, err = s.repo.CreateGroupConversation(ctx, Name, allParticipants)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+
+	return conv, nil
 }
+
+
 
 // GetConversation implements ConversationService.GetConversation
 func (s *WASATextService) GetConversation(ctx context.Context, id string, userID string) (*models.Conversation, error) {
@@ -75,7 +105,7 @@ func (s *WASATextService) GetConversation(ctx context.Context, id string, userID
 	// Check if user is a participant
 	isParticipant := false
 	for _, participant := range conv.Participants {
-		if participant == userID {
+		if participant.ID == userID {
 			isParticipant = true
 			break
 		}
@@ -172,7 +202,7 @@ func (s *WASATextService) AddToGroup(ctx context.Context, groupID, userID, curre
 	// Check if the current user is a participant
 	currentUserIsParticipant := false
 	for _, participant := range conversation.Participants {
-		if participant == currentUserID {
+		if participant.ID == currentUserID {
 			currentUserIsParticipant = true
 			break
 		}
@@ -212,7 +242,7 @@ func (s *WASATextService) LeaveGroup(ctx context.Context, groupID, userID string
 	// Verify the user is in the group
 	userIsParticipant := false
 	for _, participant := range conversation.Participants {
-		if participant == userID {
+		if participant.ID == userID {
 			userIsParticipant = true
 			break
 		}
@@ -248,7 +278,7 @@ func (s *WASATextService) SetGroupName(ctx context.Context, groupID, name, userI
 	// Check if the current user is a participant
 	userIsParticipant := false
 	for _, participant := range conversation.Participants {
-		if participant == userID {
+		if participant.ID == userID {
 			userIsParticipant = true
 			break
 		}
@@ -279,7 +309,7 @@ func (s *WASATextService) SetGroupPhoto(ctx context.Context, groupID string, pho
 	// Check if the current user is a participant
 	userIsParticipant := false
 	for _, participant := range conversation.Participants {
-		if participant == userID {
+		if participant.ID == userID {
 			userIsParticipant = true
 			break
 		}
@@ -314,7 +344,7 @@ func (s *WASATextService) SendMessage(ctx context.Context, conversationID, sende
 	// Validate the sender is a participant
 	senderIsParticipant := false
 	for _, participant := range conversation.Participants {
-		if participant == senderID {
+		if participant.ID == senderID {
 			senderIsParticipant = true
 			break
 		}
@@ -391,7 +421,7 @@ func (s *WASATextService) ForwardMessage(ctx context.Context, messageID, targetC
 	// Check if the user is a participant in the target conversation
 	userIsParticipant := false
 	for _, participant := range targetConversation.Participants {
-		if participant == userID {
+		if participant.ID == userID {
 			userIsParticipant = true
 			break
 		}

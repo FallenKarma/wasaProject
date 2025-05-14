@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -197,15 +198,18 @@ func (r *PostgresRepository) GetAllUsers(ctx context.Context) ([]models.User, er
 // CreateDirectConversation implements ConversationRepository.CreateDirectConversation
 func (r *PostgresRepository) CreateDirectConversation(ctx context.Context, userID1, userID2 string) (*models.Conversation, error) {
 	// Check if a direct conversation already exists between these users
+	log.Print("Users", userID1, userID2)
 	query := `
-		SELECT c.id 
-		FROM conversations c
-		JOIN conversation_participants cp1 ON c.id = cp1.conversation_id
-		JOIN conversation_participants cp2 ON c.id = cp2.conversation_id
-		WHERE c.type = 'direct' 
-		AND cp1.user_id = $1 
-		AND cp2.user_id = $2
-		AND (SELECT COUNT(*) FROM conversation_participants WHERE conversation_id = c.id) = 2
+		    SELECT 
+        		conversation_id
+			FROM 
+				conversation_participants
+			WHERE 
+				user_id IN ($1,$2)
+			GROUP BY 
+				conversation_id
+			HAVING 
+				COUNT(DISTINCT user_id) = 2
 	`
 	row := r.db.QueryRowContext(ctx, query, userID1, userID2)
 
@@ -311,7 +315,7 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 	conv.Type = models.ConversationType(convType)
 
 	// Get participants
-	partQuery := "SELECT user_id FROM conversation_participants WHERE conversation_id = $1"
+	partQuery := "SELECT cp.user_id, u.name FROM conversation_participants cp JOIN users u ON u.id = cp.user_id  WHERE cp.conversation_id = $1"
 	partRows, err := r.db.QueryContext(ctx, partQuery, id)
 	if err != nil {
 		return nil, err
@@ -320,10 +324,14 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 
 	for partRows.Next() {
 		var userID string
-		if err := partRows.Scan(&userID); err != nil {
+		var userName string
+		if err := partRows.Scan(&userID,&userName); err != nil {
 			return nil, err
 		}
-		conv.Participants = append(conv.Participants, userID)
+		conv.Participants = append(conv.Participants, models.Participant{
+            ID:   userID,
+            Name: userName,
+        })
 	}
 	if err := partRows.Err(); err != nil {
 		return nil, err
@@ -346,9 +354,9 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 	if conv.Type == models.DirectConversation && !name.Valid && len(conv.Participants) == 2 {
 		// Find the other user in the conversation
 		var otherUserID string
-		for _, participantID := range conv.Participants {
-			if participantID != ctx.Value("userID").(string) {
-				otherUserID = participantID
+		for _, participant := range conv.Participants {
+			if participant.ID != ctx.Value("userID").(string) {
+				otherUserID = participant.ID
 				break
 			}
 		}

@@ -13,16 +13,16 @@ import (
 	"github.com/fallenkarma/wasatext/internal/service"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 )
 
 func main() {
-	// Initialize repository
-	// This is just a placeholder - you'll need to replace this with your actual repository implementation
-
 	err := godotenv.Load()
-    if err != nil {
-        log.Println("Warning: Error loading .env file:", err)
-    }
+	if err != nil {
+		log.Println("Warning: Error loading .env file:", err)
+	} else {
+		log.Println("Successfully loaded .env file")
+	}
 
     // Get environment variables
     port := os.Getenv("SERVER_PORT")
@@ -31,7 +31,7 @@ func main() {
     }
     
     dbConnectionString := os.Getenv("DB_CONNECTION_STRING")
-	log.Println("Warning: Error loading .env file:", err)
+	log.Print("DB_CONNECTION_STRING: ", dbConnectionString)
 
 	repo,err := postgres.NewPostgresRepository(dbConnectionString,"/internal/images")
 	if err != nil {
@@ -58,10 +58,12 @@ func main() {
 	protected.Use(handler.AuthMiddleware)
 
 	// User routes
+	protected.HandleFunc("/users", handler.GetUsers).Methods("GET")
 	protected.HandleFunc("/users/me/username", handler.SetMyUserName).Methods("PUT")
 	protected.HandleFunc("/users/me/photo", handler.SetMyPhoto).Methods("PUT")
 
 	// Conversation routes
+	protected.HandleFunc("/conversations", handler.CreateConversation).Methods("POST")
 	protected.HandleFunc("/conversations", handler.GetMyConversations).Methods("GET")
 	protected.HandleFunc("/conversations/{id}", handler.GetConversation).Methods("GET")
 
@@ -78,10 +80,20 @@ func main() {
 	protected.HandleFunc("/groups/{id}/name", handler.SetGroupName).Methods("PUT")
 	protected.HandleFunc("/groups/{id}/photo", handler.SetGroupPhoto).Methods("PUT")
 
+	crs := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:4173"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	})
+
+	// Wrap the router with CORS handler
+	handlerWithCORS := crs.Handler(r)	
+
 	// Create server
 	srv := &http.Server{
 		Addr:         ":" + port,
-		Handler:      r,
+		Handler:      handlerWithCORS,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

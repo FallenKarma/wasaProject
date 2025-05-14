@@ -4,7 +4,8 @@ import { setupInterceptors } from './interceptors'
 
 // Create base axios instance
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api',
+  /* import.meta.env.VITE_API_URL || */
+  baseURL: 'http://localhost:8080/api',
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',

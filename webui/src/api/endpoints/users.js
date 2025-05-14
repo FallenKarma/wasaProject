@@ -1,6 +1,10 @@
 import apiClient from '../client'
 
-export const usersApi = {
+const usersApi = {
+  fetchUsers() {
+    return apiClient.get('/users')
+  },
+
   updateUsername(name) {
     return apiClient.put('/users/me/username', { name })
   },
@@ -16,3 +20,5 @@ export const usersApi = {
     })
   },
 }
+
+export default usersApi
