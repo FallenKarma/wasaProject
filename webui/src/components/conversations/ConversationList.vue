@@ -282,11 +282,24 @@ export default {
     const users = computed(() => userStore.allUsers)
 
     const filteredConversations = computed(() => {
-      if (!searchQuery.value) return conversations.value || []
+      let conversationsToFilter = conversations.value || []
 
-      return conversations.value.filter((conversation) => {
-        // For group conversations, search in the name
-        return conversation.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+      // Filter conversations based on search query
+      if (searchQuery.value) {
+        conversationsToFilter = conversationsToFilter.filter((conversation) => {
+          // For group conversations, search in the name
+          return conversation.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+        })
+      }
+
+      // Sort the filtered conversations by lastMessage.timestamp
+      return conversationsToFilter.sort((a, b) => {
+        // Handle cases where a conversation might not have a lastMessage (e.g., brand new conversation)
+        const timestampA = a.lastMessage ? new Date(a.lastMessage.timestamp).getTime() : 0
+        const timestampB = b.lastMessage ? new Date(b.lastMessage.timestamp).getTime() : 0
+
+        // Sort in descending order (latest on top)
+        return timestampB - timestampA
       })
     })
 
