@@ -132,13 +132,16 @@
             <div class="user-list">
               <div
                 v-for="user in filteredUsers"
-                :key="user.name"
+                :key="user.id"
                 class="user-item"
                 @click="selectUser(user)"
               >
                 <div class="user-avatar">
                   <img v-if="user.avatarUrl" :src="user.avatarUrl" alt="User avatar" />
                   <div v-else class="avatar-placeholder">{{ getInitials(user.name) }}</div>
+                </div>
+                <div class="user-info">
+                  <div class="user-name">{{ user.name }}</div>
                 </div>
               </div>
             </div>
@@ -199,7 +202,7 @@
                   <div v-else class="avatar-placeholder">{{ getInitials(user.name) }}</div>
                 </div>
                 <div class="user-info">
-                  <div class="user-name">{{ user.username }}</div>
+                  <div class="user-name">{{ user.name }}</div>
                 </div>
                 <div v-if="isUserSelected(user)" class="selected-indicator">
                   <svg
@@ -279,19 +282,11 @@ export default {
     const users = computed(() => userStore.allUsers)
 
     const filteredConversations = computed(() => {
-      if (!searchQuery.value) return conversations.value
+      if (!searchQuery.value) return conversations.value || []
 
       return conversations.value.filter((conversation) => {
         // For group conversations, search in the name
-        if (conversation.isGroup) {
-          return conversation.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-        }
-
-        // For direct conversations, search in the participant's name
-        const otherUser = conversation.participants.find(
-          (member) => member.identifier !== authStore.user?.identifier,
-        )
-        return otherUser?.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+        return conversation.name.toLowerCase().includes(searchQuery.value.toLowerCase())
       })
     })
 
@@ -351,7 +346,7 @@ export default {
     }
 
     const selectUser = (user) => {
-      selectedUser.value = user.identifier
+      selectedUser.value = user.id
       console.log('Selected user:', selectedUser.value)
       createConversation()
     }
@@ -365,12 +360,12 @@ export default {
     }
 
     const isUserSelected = (user) => {
-      return selectedUsers.value.some((selectedUser) => selectedUser.id === user.identifier)
+      return selectedUsers.value.some((selectedUser) => selectedUser.id === user.id)
     }
 
     const removeSelectedUser = (user) => {
       selectedUsers.value = selectedUsers.value.filter(
-        (selectedUser) => selectedUser.id !== user.identifier,
+        (selectedUser) => selectedUser.id !== user.id,
       )
     }
 
@@ -392,7 +387,7 @@ export default {
           conversationData = {
             type: 'group',
             name: groupName.value,
-            participants: selectedUsers.value.map((user) => user.identifier),
+            participants: selectedUsers.value.map((user) => user.id),
           }
         }
 
@@ -598,6 +593,7 @@ export default {
 }
 
 .modal-content {
+  color: #111827;
   width: 90%;
   max-width: 480px;
   max-height: 90vh;

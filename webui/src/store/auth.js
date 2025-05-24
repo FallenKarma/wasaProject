@@ -52,7 +52,7 @@ export const useAuthStore = defineStore('auth', {
   getters: {
     currentUser: (state) => state.user,
     authToken: (state) => state.token,
-    username: (state) => state.user?.username || '',
+    name: (state) => state.user?.name || '',
     userId: (state) => state.user?.id || state.token,
   },
 
@@ -91,16 +91,17 @@ export const useAuthStore = defineStore('auth', {
 
         // Response expected format:
         // { userId: 'user-id-123', username: 'username', isNewUser: true/false }
-        const { identifier } = response.data
+        const { id } = response.data
+        console.log('Login response:', response.data)
 
         // Create user object that includes all data from response
         const user = {
-          id: identifier,
-          username,
+          id: id,
+          name: username,
         }
 
         // The user ID serves as the authentication token in this system
-        const token = identifier
+        const token = id
 
         // Set token in API client for future requests
         apiClient.defaults.headers.common['Authorization'] = `Bearer ${token}`
@@ -109,7 +110,7 @@ export const useAuthStore = defineStore('auth', {
         this.setUser(user, rememberMe)
 
         return {
-          identifier,
+          id,
           username,
         }
       } catch (error) {

@@ -7,11 +7,11 @@
         <img
           v-if="message.sender?.avatar"
           :src="message.sender.avatar"
-          :alt="message.sender.username"
+          :alt="message.sender.name"
           class="avatar"
         />
         <div v-else class="default-avatar">
-          {{ getInitials(message.sender?.username) }}
+          {{ getInitials(message.sender?.name) }}
         </div>
       </div>
       <div v-else-if="!isOwn" class="avatar-spacer"></div>
@@ -19,14 +19,14 @@
       <div class="message-content-wrapper">
         <!-- Sender name for non-own messages -->
         <div v-if="showAvatar && !isOwn" class="sender-name">
-          {{ message.sender?.username }}
+          {{ message.sender?.name }}
         </div>
 
         <!-- Reply indicator if the message is a reply -->
         <div v-if="message.replyTo" class="reply-indicator">
           <div class="reply-line"></div>
           <div class="replied-content">
-            <span class="replied-user">{{ message.replyTo.sender?.username }}</span>
+            <span class="replied-user">{{ message.replyTo.sender?.name }}</span>
             <span class="replied-text">{{ truncateText(message.replyTo.content, 40) }}</span>
           </div>
         </div>
@@ -109,7 +109,7 @@
 
           <!-- Message timestamp -->
           <div class="message-time">
-            {{ formatMessageTime(message.createdAt) }}
+            {{ formatMessageTime(message.timestamp) }}
             <span v-if="message.edited" class="edited-indicator">(edited)</span>
           </div>
         </div>
@@ -245,7 +245,6 @@
 
 <script>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useStore } from 'vuex'
 import MessageReactions from './MessageReactions.vue'
 
 export default {
@@ -269,7 +268,6 @@ export default {
   },
   emits: ['reaction', 'reply'],
   setup(props) {
-    const store = useStore()
     const showActions = ref(false)
     const showMoreActions = ref(false)
     const showEmojiPicker = ref(false)
@@ -519,6 +517,7 @@ export default {
 }
 
 .message-text {
+  color: #111827;
   white-space: pre-wrap;
   font-size: 0.9375rem;
   line-height: 1.5;

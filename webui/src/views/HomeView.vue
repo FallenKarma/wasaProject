@@ -26,10 +26,11 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 const conversationStore = useConversationStore()
 
 const conversations = computed(() => conversationStore.allConversations)
-const conversationsCount = computed(() => conversations.value.length || 0)
-const unreadCount = computed(() =>
-  conversations.value.reduce((count, conv) => count + (conv.unread_count || 0), 0),
-)
+const conversationsCount = computed(() => conversations.value?.length || 0)
+const unreadCount = computed(() => {
+  if (!conversations.value || !Array.isArray(conversations.value)) return 0
+  return conversations.value.reduce((count, conv) => count + (conv.unread_count || 0), 0)
+})
 
 // Fetch conversations when the component is mounted
 onMounted(() => {

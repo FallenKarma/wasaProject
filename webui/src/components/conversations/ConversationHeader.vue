@@ -20,7 +20,7 @@
       </button>
 
       <div class="avatar-container">
-        <div v-if="conversation.isGroup" class="group-avatar">
+        <div v-if="conversation.type == 'group'" class="group-avatar">
           <span>{{ getGroupInitial() }}</span>
         </div>
         <div v-else class="user-avatar">
@@ -36,11 +36,9 @@
       <div class="conversation-details">
         <h2 class="conversation-name">{{ conversationName }}</h2>
         <div class="conversation-status">
-          <span v-if="!conversation.isGroup && otherUser?.isOnline" class="online-status">
-            Online
+          <span v-if="conversation.type == 'group'">
+            {{ conversation.participants.length }} members
           </span>
-          <span v-else-if="!conversation.isGroup" class="offline-status"> Offline </span>
-          <span v-else class="member-count"> {{ conversation.members.length }} members </span>
         </div>
       </div>
     </div>
@@ -107,23 +105,6 @@
 
     <!-- Dropdown menu -->
     <div v-if="showMenu" class="dropdown-menu" ref="menuRef">
-      <div class="menu-item" @click="muteConversation">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M11 5L6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"></path>
-        </svg>
-        <span>{{ conversation.isMuted ? 'Unmute conversation' : 'Mute conversation' }}</span>
-      </div>
-
       <div v-if="conversation.isGroup" class="menu-item" @click="leaveGroup">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -236,7 +217,6 @@
 
 <script>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { useStore } from 'vuex'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 
@@ -249,12 +229,11 @@ export default {
     },
     showBackButton: {
       type: Boolean,
-      default: false,
+      default: true,
     },
   },
   emits: ['search-messages', 'clear-search'],
   setup(props, { emit }) {
-    const store = useStore()
     const authStore = useAuthStore()
     const router = useRouter()
 
@@ -269,7 +248,7 @@ export default {
     const currentUserId = authStore.user?.id
 
     const conversationName = computed(() => {
-      if (props.conversation.isGroup) {
+      if (props.conversation.type == 'group') {
         return props.conversation.name
       } else {
         // For direct conversations, show the other user's name
@@ -282,7 +261,7 @@ export default {
         return null
       }
 
-      return props.conversation.members.find((member) => member.id !== currentUserId.value)
+      return props.conversation.participants.find((member) => member.id !== currentUserId)
     })
 
     // Methods
@@ -293,7 +272,7 @@ export default {
     const getInitials = () => {
       if (!otherUser.value || !otherUser.value.name) return '?'
 
-      return otherUser.value.username
+      return otherUser.value.name
         .split(' ')
         .map((word) => word.charAt(0).toUpperCase())
         .join('')
@@ -400,7 +379,6 @@ export default {
       openGroupInfo,
       openSearchMessages,
       closeSearchMessages,
-      muteConversation,
       leaveGroup,
       clearChat,
       deleteConversation,

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"mime/multipart"
 
@@ -33,7 +34,7 @@ func (s *Service) Login(ctx context.Context, username string) (*models.LoginResp
 	}
 
 	return &models.LoginResponse{
-		Identifier: user.ID,
+		Id: user.ID,
 	}, nil
 }
 
@@ -152,6 +153,13 @@ func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID,
 	if conv == nil {
 		return nil, errors.New("conversation not found")
 	}
+	sender, err := s.repo.GetUserByID(ctx, senderID)
+	if err != nil {
+		return nil, err
+	}
+	if sender == nil {
+		return nil, errors.New("sender not found")
+	}
 
 	// Check if the user is a participant in the conversation
 	isParticipant := false
@@ -167,14 +175,21 @@ func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID,
 
 	// Create the message
 	msg := models.Message{
-		Sender:    senderID,
+		Sender:    *sender,
 		Content:   content,
 		Type:      models.TextMessage,
 		Status:    models.Sent,
 	}
 
 	if replyToID != "" {
-		msg.ReplyTo = replyToID
+		msg.ReplyTo = sql.NullString{
+			String: replyToID,
+			Valid: true,
+		}
+	} else {
+		msg.ReplyTo = sql.NullString{
+			Valid: false, // This will translate to NULL in the database
+		}
 	}
 
 	return s.repo.CreateMessage(ctx, msg, conversationID)
@@ -189,6 +204,13 @@ func (s *Service) SendPhotoMessage(ctx context.Context, senderID, conversationID
 	}
 	if conv == nil {
 		return nil, errors.New("conversation not found")
+	}
+	sender, err := s.repo.GetUserByID(ctx, senderID)
+	if err != nil {
+		return nil, err
+	}
+	if sender == nil {
+		return nil, errors.New("sender not found")
 	}
 
 	// Check if the user is a participant in the conversation
@@ -211,16 +233,23 @@ func (s *Service) SendPhotoMessage(ctx context.Context, senderID, conversationID
 
 	// Create the message
 	msg := models.Message{
-		Sender:    senderID,
+		Sender:    *sender,
 		Content:   photoPath,
 		Type:      models.PhotoMessage,
 		Status:    models.Sent,
 	}
 
-	if replyToID != "" {
-		msg.ReplyTo = replyToID
-	}
 
+	if replyToID != "" {
+		msg.ReplyTo = sql.NullString{
+			String: replyToID,
+			Valid: true,
+		}
+	} else {
+		msg.ReplyTo = sql.NullString{
+			Valid: false, // This will translate to NULL in the database
+		}
+	}
 	return s.repo.CreateMessage(ctx, msg, conversationID)
 }
 
@@ -243,6 +272,13 @@ func (s *Service) ForwardMessage(ctx context.Context, userID, messageID, targetC
 	if targetConv == nil {
 		return errors.New("target conversation not found")
 	}
+	sender, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if sender == nil {
+		return errors.New("sender not found")
+	}
 
 	// Check if the user is a participant in the target conversation
 	isParticipant := false
@@ -258,7 +294,7 @@ func (s *Service) ForwardMessage(ctx context.Context, userID, messageID, targetC
 
 	// Create a new message in the target conversation with the same content
 	newMsg := models.Message{
-		Sender:    userID,
+		Sender:    *sender,
 		Content:   msg.Content,
 		Type:      msg.Type,
 		Status:    models.Sent,
@@ -278,9 +314,10 @@ func (s *Service) DeleteMessage(ctx context.Context, userID, messageID string) e
 	if msg == nil {
 		return errors.New("message not found")
 	}
+	
 
 	// Check if the user is the sender of the message
-	if msg.Sender != userID {
+	if msg.Sender.ID != userID {
 		return errors.New("only the sender can delete a message")
 	}
 

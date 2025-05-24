@@ -2,6 +2,7 @@ import apiClient from '../client'
 
 export const messagesApi = {
   send(messageData) {
+    console.log('Sending message with data:', messageData)
     return apiClient.post('/messages', messageData)
   },
 

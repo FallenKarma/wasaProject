@@ -153,7 +153,8 @@
 
 <script>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { useStore } from 'vuex'
+import { useMessageStore } from '@/store/messages'
+import { useAuthStore } from '@/store/auth'
 
 export default {
   name: 'MessageInput',
@@ -173,7 +174,8 @@ export default {
   },
   emits: ['message-sent', 'cancel-reply'],
   setup(props, { emit }) {
-    const store = useStore()
+    const messageStore = useMessageStore()
+    const authStore = useAuthStore()
     const messageText = ref('')
     const attachments = ref([])
     const fileInput = ref(null)
@@ -345,14 +347,20 @@ export default {
       const content = messageText.value.trim()
       const files = [...attachments.value]
       const replyToId = props.replyingTo?.id
+      const user = authStore.user
+
+      let messageData = {}
+
+      messageData = {
+        conversationId: props.conversationId,
+        sender: user,
+        content: content,
+        type: 'text',
+        ReplyTo: replyToId,
+      }
 
       try {
-        await store.dispatch('messages/sendMessage', {
-          conversationId: props.conversationId,
-          content,
-          attachments: files,
-          replyToId,
-        })
+        await messageStore.sendMessage(messageData)
 
         // Clear input and attachments after sending
         messageText.value = ''

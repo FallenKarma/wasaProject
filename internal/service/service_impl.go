@@ -116,8 +116,8 @@ func (s *WASATextService) GetConversation(ctx context.Context, id string, userID
 
 	// Mark all received messages as read
 	for i, msg := range conv.Messages {
-		if msg.Sender != userID && msg.Status == models.Received {
-			err := s.repo.UpdateMessageStatus(ctx, msg.ID, models.Read)
+		if msg.Sender.ID != userID && msg.Status == models.Received {
+			err := s.repo.UpdateMessageStatus(ctx, msg.ConversationID, models.Read)
 			if err != nil {
 				return nil, err
 			}
@@ -355,8 +355,8 @@ func (s *WASATextService) SendMessage(ctx context.Context, conversationID, sende
 	
 	// Create and send the message
 	message := models.Message{
-		ID:        uuid.New().String(),
-		Sender:    senderID,
+		ConversationID:        uuid.New().String(),
+		Sender:    *sender,
 		Timestamp: time.Now(),
 		Content:   content,
 		Type:      messageType,
@@ -375,7 +375,7 @@ func (s *WASATextService) SendMessage(ctx context.Context, conversationID, sende
 		
 		// Update message status to received
 		ctx := context.Background()
-		err := s.repo.UpdateMessageStatus(ctx, createdMessage.ID, models.Received)
+		err := s.repo.UpdateMessageStatus(ctx, createdMessage.ConversationID, models.Received)
 		if err != nil {
 			// Just log the error, don't propagate it
 			// In a real app, we would use a logger
@@ -408,6 +408,13 @@ func (s *WASATextService) ForwardMessage(ctx context.Context, messageID, targetC
 	if message == nil {
 		return errors.New("message not found")
 	}
+	sender, err := s.repo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if sender == nil {
+		return errors.New("sender not found")
+	}
 	
 	// Get the target conversation
 	targetConversation, err := s.repo.GetConversationByID(ctx, targetConversationID)
@@ -432,8 +439,8 @@ func (s *WASATextService) ForwardMessage(ctx context.Context, messageID, targetC
 	
 	// Create a new message in the target conversation
 	newMessage := models.Message{
-		ID:        uuid.New().String(),
-		Sender:    userID,
+		ConversationID:        uuid.New().String(),
+		Sender:    *sender,
 		Timestamp: time.Now(),
 		Content:   message.Content,
 		Type:      message.Type,
@@ -456,7 +463,7 @@ func (s *WASATextService) DeleteMessage(ctx context.Context, messageID, userID s
 	}
 	
 	// Check if the user is the sender of the message
-	if message.Sender != userID {
+	if message.Sender.ID != userID {
 		return errors.New("only the sender can delete the message")
 	}
 	

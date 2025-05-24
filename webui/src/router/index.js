@@ -31,7 +31,7 @@ const routes = [
     meta: { requiresAuth: true },
   }, */
   {
-    path: '/conversation',
+    path: '/conversations/:conversationId',
     name: 'conversation',
     component: ConversationView,
     props: true,

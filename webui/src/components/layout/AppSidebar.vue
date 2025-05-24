@@ -17,7 +17,7 @@
 
 <script>
 import { ref, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import ConversationList from '@/components/conversations/ConversationList.vue'
 
 export default {
@@ -26,6 +26,7 @@ export default {
     ConversationList,
   },
   setup() {
+    const router = useRouter()
     const route = useRoute()
 
     // Extract the conversation ID from the route if available
@@ -39,8 +40,7 @@ export default {
 
     const handleConversationSelected = (conversation) => {
       // This function will receive the selected conversation from the ConversationList component
-      console.log('Conversation selected:', conversation)
-      // You could add additional handling here if needed
+      router.push(`/conversations/${conversation.id}`)
     }
 
     return {

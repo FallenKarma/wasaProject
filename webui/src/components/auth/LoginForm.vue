@@ -90,7 +90,7 @@ export default {
         })
         this.successMessage = `Welcome ${this.form.username}!`
 
-        this.$emit('login-success', response.identifier)
+        this.$emit('login-success', response.id)
 
         // Redirect to dashboard or home page after successful login
         // this.$router.push('/dashboard')

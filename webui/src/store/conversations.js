@@ -116,5 +116,13 @@ export const useConversationStore = defineStore('conversations', {
         this.isLoading = false
       }
     },
+
+    async addMessageToConversation(conversationId, message) {
+      const conversation = this.conversations.find((c) => c.id === conversationId)
+      if (conversation) {
+        conversation.messages = conversation.messages || []
+        conversation.messages.unshift(message)
+      }
+    },
   },
 })

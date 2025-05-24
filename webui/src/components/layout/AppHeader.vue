@@ -121,7 +121,7 @@ export default {
     const userMenuContainer = ref(null)
 
     // User data from store
-    const username = computed(() => authStore.username)
+    const username = computed(() => authStore.name)
     const userInitials = computed(() => {
       const name = username.value
       if (!name) return ''

@@ -85,10 +85,10 @@
                 <div class="member-avatar">
                   <img v-if="member.avatarUrl" :src="member.avatarUrl" alt="Member avatar" />
                   <div v-else class="avatar-placeholder">
-                    {{ getInitials(member.username) }}
+                    {{ getInitials(member.name) }}
                   </div>
                 </div>
-                <div class="member-name">{{ member.username }}</div>
+                <div class="member-name">{{ member.name }}</div>
                 <div v-if="member.isOnline" class="member-status online"></div>
               </div>
             </div>
@@ -143,15 +143,15 @@ export default {
     const messageStore = useMessageStore()
 
     // State
-    const isLoading = ref(true)
-    const isLoadingMessages = ref(true)
+    const isLoading = ref(false)
+    const isLoadingMessages = ref(false)
     const showInfo = ref(false)
     const mediaFiles = ref([])
 
     // Computed
     const conversationId = computed(() => route.params.conversationId)
     const conversation = computed(() => conversationStore.currentConversation)
-    const messages = computed(() => messageStore.messages)
+    const messages = computed(() => conversation.value?.messages || [])
 
     // Methods
     const fetchConversation = async () => {
@@ -167,36 +167,12 @@ export default {
       }
     }
 
-    const fetchConversations = async () => {
-      try {
-        isLoading.value = true
-        await conversationStore.fetchConversations()
-      } catch (error) {
-        console.error('Failed to fetch conversations:', error)
-      } finally {
-        isLoading.value = false
-      }
-    }
-
-    const fetchMessages = async () => {
-      if (!conversationId.value) return
-
-      try {
-        isLoadingMessages.value = true
-        await messageStore.fetchMessages(conversationId.value, true) // true to reset
-      } catch (error) {
-        console.error('Failed to fetch messages:', error)
-      } finally {
-        isLoadingMessages.value = false
-      }
-    }
-
     const loadMoreMessages = async () => {
       if (!conversationId.value || messageStore.isLoading) return
 
       try {
         isLoadingMessages.value = true
-        await messageStore.fetchMoreMessages(conversationId.value)
+        await conversationStore.loadMoreMessages(conversationId.value)
       } catch (error) {
         console.error('Failed to load more messages:', error)
       } finally {
@@ -206,10 +182,7 @@ export default {
 
     const handleMessageSent = (message) => {
       // Optimistically add message to the list
-      messageStore.addMessage({
-        ...message,
-        sending: true,
-      })
+      conversationStore.addMessageToConversation(conversationId.value, message)
 
       // Scroll to the bottom of the message list
       setTimeout(() => {
@@ -275,7 +248,6 @@ export default {
     // Lifecycle
     onMounted(() => {
       fetchConversation()
-      fetchMessages()
     })
 
     // Watch for route changes
@@ -284,7 +256,6 @@ export default {
       (newId, oldId) => {
         if (newId !== oldId) {
           fetchConversation()
-          fetchMessages()
           showInfo.value = false
         }
       },

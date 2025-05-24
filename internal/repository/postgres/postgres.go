@@ -346,7 +346,7 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 
 	// Set the last message if there are any messages
 	if len(messages) > 0 {
-		lastMsg := messages[0]  // Assuming messages are ordered by timestamp desc
+		lastMsg := messages[len(messages)-1]  // Assuming messages are ordered by timestamp desc
 		conv.LastMessage = &lastMsg
 	}
 
@@ -381,6 +381,7 @@ func (r *PostgresRepository) GetConversationsByUserID(ctx context.Context, userI
 		FROM conversations c
 		JOIN conversation_participants cp ON c.id = cp.conversation_id
 		WHERE cp.user_id = $1
+		ORDER BY c.last_activity DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, userID)
 	if err != nil {
@@ -547,8 +548,8 @@ func (r *PostgresRepository) CreateMessage(ctx context.Context, msg models.Messa
 	defer tx.Rollback()
 
 	// If no ID provided, generate one
-	if msg.ID == "" {
-		msg.ID = uuid.New().String()
+	if msg.ConversationID == "" {
+		msg.ConversationID = uuid.New().String()
 	}
 
 	// If no timestamp provided, use current time
@@ -561,7 +562,7 @@ func (r *PostgresRepository) CreateMessage(ctx context.Context, msg models.Messa
 		INSERT INTO messages (id, sender_id, conversation_id, content, type, status, reply_to, timestamp)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`
-	_, err = tx.ExecContext(ctx, msgQuery, msg.ID, msg.Sender, conversationID, msg.Content, msg.Type, msg.Status, msg.ReplyTo, msg.Timestamp)
+	_, err = tx.ExecContext(ctx, msgQuery, msg.ConversationID, msg.Sender.ID, conversationID, msg.Content, msg.Type, msg.Status, msg.ReplyTo, msg.Timestamp)
 	if err != nil {
 		return nil, err
 	}
@@ -582,13 +583,15 @@ func (r *PostgresRepository) CreateMessage(ctx context.Context, msg models.Messa
 
 // GetMessagesByConversationID implements MessageRepository.GetMessagesByConversationID
 func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, conversationID string) ([]models.Message, error) {
-	// Get messages
+	// Get messages with user information
 	query := `
-		SELECT id, sender_id, content, type, status, reply_to, timestamp
-		FROM messages
-		WHERE conversation_id = $1 AND deleted_at IS NULL
-		ORDER BY timestamp DESC
+		SELECT m.conversation_id, m.sender_id, u.name, u.photo_url, m.content, m.type, m.status, m.reply_to, m.timestamp
+		FROM messages m
+		INNER JOIN users u ON m.sender_id = u.id
+		WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
+		ORDER BY m.timestamp ASC
 	`
+	
 	rows, err := r.db.QueryContext(ctx, query, conversationID)
 	if err != nil {
 		return nil, err
@@ -599,21 +602,44 @@ func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, co
 	for rows.Next() {
 		var msg models.Message
 		var replyTo sql.NullString
-		if err := rows.Scan(&msg.ID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp); err != nil {
+		var photoURL sql.NullString // Handle potential NULL photo_url
+		
+		if err := rows.Scan(                 
+			&msg.ConversationID,        // m.conversation_id
+			&msg.Sender.ID,             // m.sender_id (User.ID)
+			&msg.Sender.Name,           // u.name (User.Name)
+			&photoURL,                  // u.photo_url (User.PhotoURL)
+			&msg.Content,               // m.content
+			&msg.Type,                  // m.type
+			&msg.Status,                // m.status
+			&replyTo,                   // m.reply_to
+			&msg.Timestamp,             // m.timestamp
+		); err != nil {
 			return nil, err
 		}
-		if replyTo.Valid {
-			msg.ReplyTo = replyTo.String
+
+		// Handle nullable photo URL
+		if photoURL.Valid {
+			msg.Sender.PhotoURL = photoURL.String
 		}
+
+		// Handle nullable reply_to
+		if replyTo.Valid {
+			msg.ReplyTo = sql.NullString{
+				String: replyTo.String,
+				Valid:  true,
+			}
+		}
+
 		messages = append(messages, msg)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
 	return messages, nil
 }
-
 // GetMessageByID implements MessageRepository.GetMessageByID
 func (r *PostgresRepository) GetMessageByID(ctx context.Context, id string) (*models.Message, error) {
 	query := `
@@ -625,7 +651,7 @@ func (r *PostgresRepository) GetMessageByID(ctx context.Context, id string) (*mo
 
 	var msg models.Message
 	var replyTo, conversationID sql.NullString
-	err := row.Scan(&msg.ID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp, &conversationID)
+	err := row.Scan(&msg.ConversationID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp, &conversationID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -633,7 +659,10 @@ func (r *PostgresRepository) GetMessageByID(ctx context.Context, id string) (*mo
 		return nil, err
 	}
 	if replyTo.Valid {
-		msg.ReplyTo = replyTo.String
+		msg.ReplyTo = sql.NullString{
+							String: replyTo.String,
+							Valid: true,
+						}
 	}
 
 	return &msg, nil

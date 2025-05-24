@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import apiClient from '@/api/client'
+import { messagesApi } from '@/api/endpoints/messages'
 
 export const useMessageStore = defineStore('messages', {
   state: () => ({
@@ -67,31 +68,15 @@ export const useMessageStore = defineStore('messages', {
     },
 
     // Send a new message
-    async sendMessage({ conversationId, content, attachments = [] }) {
+    async sendMessage(messageData) {
       this.isLoading = true
       this.error = null
-
+      console.log('Sending message:', messageData)
       try {
-        const formData = new FormData()
-        formData.append('content', content)
-
-        // Add any attachments
-        attachments.forEach((file, index) => {
-          formData.append(`attachments[${index}]`, file)
-        })
-
-        const response = await apiClient.post(
-          `/conversations/${conversationId}/messages`,
-          formData,
-          {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-          },
-        )
+        const response = await messagesApi.send(messageData)
 
         // Add new message to the beginning of the array
-        this.messages = [response.data, ...this.messages]
+        this.messages.push(response.data)
         return response.data
       } catch (error) {
         this.error = error.message || 'Failed to send message'

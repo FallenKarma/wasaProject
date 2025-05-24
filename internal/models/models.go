@@ -1,12 +1,13 @@
 package models
 
 import (
+	"database/sql"
 	"time"
 )
 
 // User represents a WASAText user
 type User struct {
-	ID       string `json:"identifier"`
+	ID       string `json:"id"`
 	Name     string `json:"name"`
 	PhotoURL string `json:"photo,omitempty"`
 }
@@ -30,13 +31,13 @@ const (
 
 // Message represents a message in WASAText
 type Message struct {
-	ID        string        `json:"id"`
-	Sender    string        `json:"sender"`
+	ConversationID        string        `json:"conversationId"`
+	Sender    User        `json:"sender"`
 	Timestamp time.Time     `json:"timestamp"`
 	Content   string        `json:"content"`
 	Type      MessageType   `json:"type"`
 	Status    MessageStatus `json:"status"`
-	ReplyTo   string        `json:"replyTo,omitempty"` // ID of message being replied to
+	ReplyTo   sql.NullString        `json:"replyTo,omitempty"` // ID of message being replied to
 }
 
 // Reaction represents a user's reaction to a message
@@ -84,7 +85,7 @@ type LoginRequest struct {
 
 // LoginResponse represents the login response
 type LoginResponse struct {
-	Identifier string `json:"identifier"`
+	Id string `json:"id"`
 }
 
 // UpdateUsernameRequest represents the update username request body

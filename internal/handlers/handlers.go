@@ -153,7 +153,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[%s] Login successful | UserID: %s | Username: %s | Duration: %s", 
-		handlerName, response.Identifier, req.Name, time.Since(start))
+		handlerName, response.Id, req.Name, time.Since(start))
 	
 	respondWithJSON(w, http.StatusCreated, response)
 }
@@ -408,19 +408,17 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Extract conversation ID and message content
-	conversationID := msg.ID // Assuming the ID field contains the conversation ID
+	conversationID := msg.ConversationID // Assuming the ID field contains the conversation ID
 	content := msg.Content
 	replyToID := msg.ReplyTo
 
-	log.Printf("[%s] Processing message | UserID: %s | ConvID: %s | Type: %s | ReplyToID: %s | ContentLen: %d", 
-		handlerName, userID, conversationID, msg.Type, replyToID, len(content))
 
 	// Check message type and process accordingly
 	var newMsg *models.Message
 	var err error
 
 	if msg.Type == models.TextMessage {
-		newMsg, err = h.service.SendTextMessage(r.Context(), userID, conversationID, content, replyToID)
+		newMsg, err = h.service.SendTextMessage(r.Context(), userID, conversationID, content, replyToID.String)
 	} else {
 		log.Printf("[%s] Invalid message type | UserID: %s | Type: %s", handlerName, userID, msg.Type)
 		respondWithError(w, http.StatusBadRequest, "Invalid message type for this endpoint")
@@ -434,7 +432,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[%s] Message sent | UserID: %s | ConvID: %s | MessageID: %s | Duration: %s", 
-		handlerName, userID, conversationID, newMsg.ID, time.Since(start))
+		handlerName, userID, conversationID, newMsg.ConversationID, time.Since(start))
 	
 	respondWithJSON(w, http.StatusCreated, newMsg)
 }

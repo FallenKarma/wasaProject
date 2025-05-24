@@ -4,17 +4,12 @@
     <div class="conversation-details">
       <div class="conversation-top">
         <h3 class="conversation-name">{{ conversationName }}</h3>
-        <span class="conversation-time">{{ formatTime(conversation.lastMessage?.createdAt) }}</span>
+        <span class="conversation-time">{{ formatTime(conversation.lastMessage?.timestamp) }}</span>
       </div>
 
       <div class="conversation-bottom">
         <p class="last-message" :class="{ unread: hasUnreadMessages }">
-          <span
-            v-if="conversation.lastMessage && conversation.lastMessage.sender.id !== currentUserId"
-            class="sender-name"
-          >
-            {{ getSenderName() }}:
-          </span>
+          <span v-if="conversation.lastMessage" class="sender-name"> {{ getSenderName() }}: </span>
           {{ getLastMessagePreview() }}
         </p>
 
@@ -63,7 +58,7 @@ export default {
       if (props.conversation.type !== 'direct') {
         return null
       }
-      return props.conversation.participants.find((member) => member.id != currentUserId.value)
+      return props.conversation.participants.find((member) => member.id !== currentUserId)
     })
 
     const hasUnreadMessages = computed(() => {
@@ -78,7 +73,7 @@ export default {
     const getInitials = () => {
       if (!otherUser.value || !otherUser.value.name) return '?'
 
-      return otherUser.value.username
+      return otherUser.value.name
         .split(' ')
         .map((word) => word.charAt(0).toUpperCase())
         .join('')
@@ -95,7 +90,7 @@ export default {
 
       const senderId = props.conversation.lastMessage.sender.id
 
-      if (senderId === currentUserId.value) {
+      if (senderId === currentUserId) {
         return 'You'
       }
 
