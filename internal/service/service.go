@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"mime/multipart"
 
@@ -144,7 +143,7 @@ func (s *Service) SetGroupPhoto(ctx context.Context, groupID string, photo multi
 }
 
 // SendTextMessage sends a new text message
-func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID, content string, replyToID string) (*models.Message, error) {
+func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID, content string, replyToID *string) (*models.Message, error) {
 	// Verify the conversation exists and the user is a participant
 	conv, err := s.repo.GetConversationByID(ctx, conversationID)
 	if err != nil {
@@ -181,16 +180,9 @@ func (s *Service) SendTextMessage(ctx context.Context, senderID, conversationID,
 		Status:    models.Sent,
 	}
 
-	if replyToID != "" {
-		msg.ReplyTo = sql.NullString{
-			String: replyToID,
-			Valid: true,
-		}
-	} else {
-		msg.ReplyTo = sql.NullString{
-			Valid: false, // This will translate to NULL in the database
-		}
-	}
+    if replyToID != nil && *replyToID != "" {
+        msg.ReplyTo = replyToID
+    }
 
 	return s.repo.CreateMessage(ctx, msg, conversationID)
 }
@@ -241,14 +233,7 @@ func (s *Service) SendPhotoMessage(ctx context.Context, senderID, conversationID
 
 
 	if replyToID != "" {
-		msg.ReplyTo = sql.NullString{
-			String: replyToID,
-			Valid: true,
-		}
-	} else {
-		msg.ReplyTo = sql.NullString{
-			Valid: false, // This will translate to NULL in the database
-		}
+		msg.ReplyTo = &replyToID
 	}
 	return s.repo.CreateMessage(ctx, msg, conversationID)
 }
@@ -322,6 +307,26 @@ func (s *Service) DeleteMessage(ctx context.Context, userID, messageID string) e
 	}
 
 	return s.repo.DeleteMessage(ctx, messageID)
+}
+
+// UpdateMessage updates a message
+func (s *Service) UpdateMessage(ctx context.Context, userID, messageID string, content string) error {
+	// Get the message
+	msg, err := s.repo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	if msg == nil {
+		return errors.New("message not found")
+	}
+	
+
+	// Check if the user is the sender of the message
+	if msg.Sender.ID != userID {
+		return errors.New("only the sender can update a message")
+	}
+
+	return s.repo.UpdateMessageContent(ctx, messageID, content)
 }
 
 // AddReaction adds a reaction to a message

@@ -40,7 +40,7 @@ export const useUserStore = defineStore('user', {
       this.error = null
 
       try {
-        const response = await usersApi.getCurrentUser()
+        const response = await usersApi.fetchCurrentUser()
         this.user = response.data
         return response.data
       } catch (error) {

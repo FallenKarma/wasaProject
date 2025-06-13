@@ -5,6 +5,10 @@ const usersApi = {
     return apiClient.get('/users')
   },
 
+  fetchCurrentUser() {
+    return apiClient.get('/users/me')
+  },
+
   updateUsername(name) {
     return apiClient.put('/users/me/username', { name })
   },

@@ -2,7 +2,6 @@ import apiClient from '../client'
 
 export const messagesApi = {
   send(messageData) {
-    console.log('Sending message with data:', messageData)
     return apiClient.post('/messages', messageData)
   },
 
@@ -13,12 +12,12 @@ export const messagesApi = {
     })
   },
 
-  addComment(messageId, reactionData) {
-    return apiClient.post(`/messages/${messageId}/comment`, reactionData)
+  addReaction(messageId, reactionData) {
+    return apiClient.post(`/messages/${messageId}/reaction`, reactionData)
   },
 
-  removeComment(messageId) {
-    return apiClient.delete(`/messages/${messageId}/comment`)
+  removeReaction(messageId) {
+    return apiClient.delete(`/messages/${messageId}/reaction`)
   },
 
   delete(messageId) {

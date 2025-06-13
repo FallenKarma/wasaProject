@@ -262,7 +262,6 @@ export default {
   setup(props, { emit }) {
     const router = useRouter()
 
-    // Use Pinia stores instead of Vuex
     const conversationStore = useConversationStore()
     const authStore = useAuthStore()
     const userStore = useUserStore()
@@ -304,10 +303,12 @@ export default {
     })
 
     const filteredUsers = computed(() => {
-      if (!userSearchQuery.value) return users.value
+      if (!userSearchQuery.value) return users.value.filter((user) => user.id !== authStore.user.id)
 
-      return users.value.filter((user) =>
-        user.name.toLowerCase().includes(userSearchQuery.value.toLowerCase()),
+      return users.value.filter(
+        (user) =>
+          user.name.toLowerCase().includes(userSearchQuery.value.toLowerCase()) &&
+          user.id !== authStore.user.id,
       )
     })
 

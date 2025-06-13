@@ -30,7 +30,8 @@
 
 <script>
 import { ref, computed } from 'vue'
-import { useStore } from 'vuex'
+import { useAuthStore } from '@/store/auth'
+import { useMessageStore } from '@/store/messages'
 
 export default {
   name: 'MessageReactions',
@@ -47,8 +48,9 @@ export default {
   },
   emits: ['add-reaction', 'remove-reaction'],
   setup(props, { emit }) {
-    const store = useStore()
     const showReactionSelector = ref(false)
+    const authStore = useAuthStore()
+    const messageStore = useMessageStore()
 
     // Common emoji reactions
     const commonEmojis = ['👍', '❤️', '😂', '😮', '😢', '👏', '🎉', '🤔']
@@ -80,17 +82,18 @@ export default {
 
     // Check if current user has reacted with this emoji
     const isUserReaction = (reaction) => {
-      const currentUserId = store.getters['auth/user']?.id
-      return reaction.users.some((user) => user.id === currentUserId)
+      const currentUserId = authStore.user?.id
+      return reaction.user === currentUserId
     }
 
     // Get the current user's reaction ID for a specific emoji
     const getUserReactionId = (emoji) => {
-      const currentUserId = store.getters['auth/user']?.id
+      const currentUserId = authStore.user?.id
       const userReaction = props.reactions.find(
-        (r) => r.userId === currentUserId && r.emoji === emoji,
+        (r) => r.user === currentUserId && r.emoji === emoji,
       )
-      return userReaction?.id
+      console.log('User reaction:', userReaction)
+      return userReaction
     }
 
     // Toggle reaction selector
@@ -106,21 +109,18 @@ export default {
 
     // Toggle a reaction (add if not present, remove if already there)
     const toggleReaction = (emoji) => {
-      const hasReacted = isUserReaction(groupedReactions.value.find((r) => r.emoji === emoji))
-
-      if (hasReacted) {
-        const reactionId = getUserReactionId(emoji)
-        if (reactionId) {
-          store.dispatch('messages/removeReaction', {
-            messageId: props.messageId,
-            reactionId,
-          })
-        }
+      const reactionId = getUserReactionId(emoji)
+      console.log('Toggling reaction:', emoji, 'Reaction ID:', reactionId)
+      if (reactionId) {
+        messageStore.removeReaction(props.messageId, emoji)
       } else {
-        store.dispatch('messages/addReaction', {
+        const reaction = {
+          emoji,
+          userId: authStore.user.id,
           messageId: props.messageId,
-          reaction: emoji,
-        })
+        }
+        messageStore.addReaction(props.messageId, emoji)
+        props.reactions.push(reaction)
       }
     }
 

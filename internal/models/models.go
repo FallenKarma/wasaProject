@@ -1,7 +1,6 @@
 package models
 
 import (
-	"database/sql"
 	"time"
 )
 
@@ -31,13 +30,16 @@ const (
 
 // Message represents a message in WASAText
 type Message struct {
+	ID         			  string        `json:"id"`
 	ConversationID        string        `json:"conversationId"`
-	Sender    User        `json:"sender"`
-	Timestamp time.Time     `json:"timestamp"`
-	Content   string        `json:"content"`
-	Type      MessageType   `json:"type"`
-	Status    MessageStatus `json:"status"`
-	ReplyTo   sql.NullString        `json:"replyTo,omitempty"` // ID of message being replied to
+	Sender    			  User          `json:"sender"`
+	Timestamp 			  time.Time     `json:"timestamp"`
+	Content   			  string        `json:"content"`
+	Type      			  MessageType   `json:"type"`
+	Status    			  MessageStatus `json:"status"`
+	ReplyTo   			  *string       `json:"replyTo,omitempty"` // ID of message being replied to
+	DeletedAt 			  *time.Time	`json:"deletedAt,omitempty"` // Timestamp when the message was deleted
+	Reactions 			  []Reaction    `json:"reactions,omitempty"` // Reactions to the message
 }
 
 // Reaction represents a user's reaction to a message
@@ -69,6 +71,7 @@ type Conversation struct {
 type Participant struct {
     ID   string `json:"id"`
     Name string `json:"name"`
+	PhotoURL string `json:"photo,omitempty"`
 }
 
 // CreateConversationRequest represents the request to create a new conversation
@@ -101,6 +104,10 @@ type AddToGroupRequest struct {
 // SetGroupNameRequest represents the request to set a group name
 type SetGroupNameRequest struct {
 	Name string `json:"name"`
+}
+
+type UpdateMessageRequest struct {
+	Content   string `json:"content"`
 }
 
 // ForwardMessageRequest represents the request to forward a message

@@ -33,7 +33,8 @@ func main() {
     dbConnectionString := os.Getenv("DB_CONNECTION_STRING")
 	log.Print("DB_CONNECTION_STRING: ", dbConnectionString)
 
-	repo,err := postgres.NewPostgresRepository(dbConnectionString,"/internal/images")
+	const UPLOADS_BASE_PATH = "/app/uploads"
+	repo,err := postgres.NewPostgresRepository(dbConnectionString,UPLOADS_BASE_PATH)
 	if err != nil {
 		log.Fatalf("Connection to database failed: %v", err)
 	}
@@ -46,6 +47,14 @@ func main() {
 
 	// Initialize router
 	r := mux.NewRouter()
+
+	 // --- NEW: Static File Server for Uploads ---
+    // This serves files from the UPLOADS_BASE_PATH on the /uploads/ endpoint.
+    // So if a file is saved at /app/uploads/user_photos/user123_12345.jpg
+    // it will be accessible at http://your-backend-ip:port/uploads/user_photos/user123_12345.jpg
+    fileServer := http.FileServer(http.Dir(UPLOADS_BASE_PATH))
+    r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", fileServer))
+
 	
 	// Add API prefix
 	apiRouter := r.PathPrefix("/api").Subrouter()
@@ -59,6 +68,7 @@ func main() {
 
 	// User routes
 	protected.HandleFunc("/users", handler.GetUsers).Methods("GET")
+	protected.HandleFunc("/users/me", handler.GetMyUser).Methods("GET")
 	protected.HandleFunc("/users/me/username", handler.SetMyUserName).Methods("PUT")
 	protected.HandleFunc("/users/me/photo", handler.SetMyPhoto).Methods("PUT")
 
@@ -70,9 +80,10 @@ func main() {
 	// Message routes
 	protected.HandleFunc("/messages", handler.SendMessage).Methods("POST")
 	protected.HandleFunc("/messages/forward", handler.ForwardMessage).Methods("POST")
-	protected.HandleFunc("/messages/{id}/comment", handler.CommentMessage).Methods("POST")
-	protected.HandleFunc("/messages/{id}/comment", handler.UncommentMessage).Methods("DELETE")
+	protected.HandleFunc("/messages/{id}/reaction", handler.CommentMessage).Methods("POST")
+	protected.HandleFunc("/messages/{id}/reaction", handler.UncommentMessage).Methods("DELETE")
 	protected.HandleFunc("/messages/{id}", handler.DeleteMessage).Methods("DELETE")
+	protected.HandleFunc("/messages/{id}", handler.UpdateMessage).Methods("PUT")
 
 	// Group routes
 	protected.HandleFunc("/groups/{id}/members", handler.AddToGroup).Methods("POST")

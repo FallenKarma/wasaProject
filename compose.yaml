@@ -1,6 +1,19 @@
 version: "3.8"
 
 services:
+  db:
+    build:
+      context: . # Using the project root as context so we can access the internal directory
+      dockerfile: Dockerfile.postgres # You'll need to save the DB Dockerfile with this name
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+      - POSTGRES_DB=wasaText
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     build:
       context: .
@@ -14,19 +27,6 @@ services:
     # This mounts your .env file from the host to the container
     volumes:
       - ./.env:/.env
-
-  db:
-    build:
-      context: . # Using the project root as context so we can access the internal directory
-      dockerfile: Dockerfile.postgres # You'll need to save the DB Dockerfile with this name
-    ports:
-      - "5432:5432"
-    environment:
-      - POSTGRES_USER=root
-      - POSTGRES_PASSWORD=root
-      - POSTGRES_DB=wasaText
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
   frontend:
     build:

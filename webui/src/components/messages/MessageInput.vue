@@ -177,13 +177,13 @@ export default {
     const messageStore = useMessageStore()
     const authStore = useAuthStore()
     const messageText = ref('')
-    const attachments = ref([])
+    const attachments = ref([]) // This will hold File objects for photos
     const fileInput = ref(null)
     const inputRef = ref(null)
     const showEmojiPicker = ref(false)
     const currentCategory = ref(0)
 
-    // Emoji categories
+    // Emoji categories (rest of your emojiCategories array)
     const emojiCategories = [
       {
         name: 'Frequently Used',
@@ -318,6 +318,7 @@ export default {
 
     // Computed
     const canSend = computed(() => {
+      // Can send if there's text OR attachments, and not currently loading
       return (messageText.value.trim() !== '' || attachments.value.length > 0) && !props.isLoading
     })
 
@@ -345,26 +346,46 @@ export default {
       if (!canSend.value) return
 
       const content = messageText.value.trim()
-      const files = [...attachments.value]
-      const replyToId = props.replyingTo?.id
+      const files = [...attachments.value] // Clone attachments to avoid mutation issues
+      const replyToId = props.replyingTo?.id || '' // Ensure it's an empty string if null/undefined
       const user = authStore.user
 
-      let messageData = {}
-
-      messageData = {
-        conversationId: props.conversationId,
-        sender: user,
-        content: content,
-        type: 'text',
-        ReplyTo: replyToId,
-      }
-
       try {
-        await messageStore.sendMessage(messageData)
+        let sentMessageData
+        if (files.length > 0) {
+          // Sending a photo message (or multiple photos if you want to support it)
+          if (files.length > 1) {
+            console.warn(
+              'Backend currently supports only one photo per message. Sending the first one.',
+            )
+          }
+          const photoFile = files[0]
+
+          sentMessageData = await messageStore.sendPhotoMessage(
+            props.conversationId,
+            photoFile,
+            replyToId,
+          )
+        } else {
+          // Sending a text message
+          const messageData = {
+            conversationId: props.conversationId,
+            sender: user,
+            content: content,
+            type: 'text',
+            // Only include replyTo if it's not empty, for cleaner JSON
+            ...(replyToId && { replyTo: replyToId }),
+          }
+          sentMessageData = await messageStore.sendTextMessage(messageData)
+        }
 
         // Clear input and attachments after sending
         messageText.value = ''
         attachments.value = []
+        // Clear file input value to allow re-uploading the same file
+        if (fileInput.value) {
+          fileInput.value.value = ''
+        }
 
         // Reset textarea height
         if (inputRef.value) {
@@ -372,7 +393,7 @@ export default {
         }
 
         // Emit events
-        emit('message-sent')
+        emit('message-sent', sentMessageData)
         if (props.replyingTo) {
           emit('cancel-reply')
         }
@@ -381,25 +402,39 @@ export default {
         showEmojiPicker.value = false
       } catch (error) {
         console.error('Failed to send message:', error)
-        // Could show an error toast here
+        // Could show an error toast here (e.g., using a notification library)
       }
     }
 
     const handleFileSelect = (event) => {
-      const files = Array.from(event.target.files)
-      if (files.length === 0) return
+      const selectedFiles = Array.from(event.target.files)
+      if (selectedFiles.length === 0) return
 
-      // Add selected files to attachments
-      attachments.value = [...attachments.value, ...files]
+      // Filter for images only, or extend logic to handle other file types
+      const imageFiles = selectedFiles.filter((file) => file.type.startsWith('image/'))
 
-      // Reset the file input
-      if (fileInput.value) {
-        fileInput.value.value = ''
+      if (imageFiles.length > 0) {
+        // For simplicity, let's allow only one image attachment at a time
+        // If you want multiple, you'll need to adjust `attachments.value`
+        attachments.value = [imageFiles[0]] // Replace existing attachments with the new image
+        messageText.value = '' // Clear text if sending only an image
+      } else {
+        // Optionally, show a warning if non-image files are selected
+        console.warn('Only image files are currently supported for attachments.')
       }
     }
 
     const removeAttachment = (index) => {
+      // Revoke URL if it's an image preview to prevent memory leaks
+      if (isImage(attachments.value[index])) {
+        URL.revokeObjectURL(getPreviewUrl(attachments.value[index]))
+      }
       attachments.value.splice(index, 1)
+      // Re-enable send button if there's text, otherwise it will be disabled
+      // This handles the case where attachment was the only thing allowing send
+      if (messageText.value.trim() !== '') {
+        canSend.value = true
+      }
     }
 
     const isImage = (file) => {
@@ -410,6 +445,7 @@ export default {
       if (isImage(file)) {
         return URL.createObjectURL(file)
       }
+      // For non-image files, you might return a default icon URL or handle differently
       return null
     }
 

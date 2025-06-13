@@ -1,12 +1,10 @@
-<!-- src/components/messages/MessageItem.vue -->
 <template>
   <div class="message-wrapper" :class="{ 'own-message': isOwn }">
     <div class="message-item" :class="{ 'with-avatar': showAvatar }">
-      <!-- User avatar for non-own messages -->
       <div v-if="showAvatar && !isOwn" class="avatar-container">
         <img
-          v-if="message.sender?.avatar"
-          :src="message.sender.avatar"
+          v-if="message.sender?.photo_url"
+          :src="getFullPhotoUrl(message.sender.photo_url)"
           :alt="message.sender.name"
           class="avatar"
         />
@@ -17,107 +15,119 @@
       <div v-else-if="!isOwn" class="avatar-spacer"></div>
 
       <div class="message-content-wrapper">
-        <!-- Sender name for non-own messages -->
         <div v-if="showAvatar && !isOwn" class="sender-name">
           {{ message.sender?.name }}
         </div>
 
-        <!-- Reply indicator if the message is a reply -->
-        <div v-if="message.replyTo" class="reply-indicator">
+        <div v-if="message.repliedToMessageData && !message.deletedAt" class="reply-indicator">
           <div class="reply-line"></div>
           <div class="replied-content">
-            <span class="replied-user">{{ message.replyTo.sender?.name }}</span>
-            <span class="replied-text">{{ truncateText(message.replyTo.content, 40) }}</span>
+            <span class="replied-user">{{ message.repliedToMessageData.sender.name }}</span>
+            <span
+              v-if="!message.repliedToMessageData.content.startsWith('/')"
+              class="replied-text"
+              >{{ truncateText(message.repliedToMessageData.content, 40) }}</span
+            >
+            <span v-else class="replied-text">🖼️ Photo</span>
           </div>
         </div>
 
-        <!-- Message content -->
-        <div class="message-content" :class="{ 'is-deleted': message.isDeleted }">
-          <!-- Message text -->
-          <div v-if="!message.isDeleted" class="message-text">
-            {{ message.content }}
-          </div>
-          <div v-else class="deleted-message">
-            <span class="deleted-icon">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="3 6 5 6 21 6"></polyline>
-                <path
-                  d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
-                ></path>
-              </svg>
-            </span>
-            Message deleted
-          </div>
-
-          <!-- Attachments -->
-          <div v-if="message.attachments?.length" class="attachments">
-            <div
-              v-for="(attachment, index) in message.attachments"
-              :key="index"
-              class="attachment"
-              @click="handleAttachmentClick(attachment)"
-            >
-              <div v-if="isImage(attachment)" class="image-attachment">
-                <img :src="attachment.url" :alt="attachment.filename" />
-              </div>
-              <div v-else class="file-attachment">
-                <div class="file-icon">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                    <polyline points="10 9 9 9 8 9"></polyline>
-                  </svg>
-                </div>
-                <div class="file-details">
-                  <div class="file-name">{{ attachment.filename }}</div>
-                  <div class="file-size">{{ formatFileSize(attachment.size) }}</div>
-                </div>
-              </div>
+        <div
+          class="message-content"
+          :class="{ 'is-deleted': message.deletedAt, 'is-editing': isEditing }"
+        >
+          <div v-if="isEditing" class="edit-mode">
+            <textarea
+              ref="editTextarea"
+              v-model="editContent"
+              class="edit-textarea"
+              @keydown="handleEditKeydown"
+              @blur="handleEditBlur"
+              rows="1"
+            ></textarea>
+            <div class="edit-actions">
+              <button class="edit-action-button save" @click="saveEdit">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </button>
+              <button class="edit-action-button cancel" @click="cancelEdit">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
             </div>
           </div>
 
-          <!-- Message reactions -->
-          <MessageReactions
-            v-if="message.reactions && message.reactions.length > 0"
-            :reactions="message.reactions"
-            :messageId="message.id"
-            @add-reaction="$emit('reaction', { messageId: message.id, reaction: $event })"
-            @remove-reaction="$emit('reaction', { messageId: message.id, reaction: null })"
-          />
+          <div v-else>
+            <div v-if="message.type === 'photo' && !message.deletedAt" class="message-photo">
+              <img :src="getFullPhotoUrl(message.content)" :alt="'Photo message'" />
+            </div>
 
-          <!-- Message timestamp -->
-          <div class="message-time">
-            {{ formatMessageTime(message.timestamp) }}
-            <span v-if="message.edited" class="edited-indicator">(edited)</span>
+            <div v-else-if="message.type === 'text' && !message.deletedAt" class="message-text">
+              {{ message.content }}
+            </div>
+
+            <div v-else-if="message.deletedAt" class="deleted-message">
+              <span class="deleted-icon">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path
+                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
+                  ></path>
+                </svg>
+              </span>
+              Message deleted
+            </div>
+
+            <MessageReactions
+              v-if="message.reactions && message.reactions.length > 0"
+              :reactions="message.reactions"
+              :messageId="message.id"
+              @add-reaction="$emit('reaction', { messageId: message.id, reaction: $event })"
+              @remove-reaction="$emit('reaction', { messageId: message.id, reaction: null })"
+            />
+
+            <div class="message-time">
+              {{ formatMessageTime(message.timestamp) }}
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Message actions -->
-    <div class="message-actions" v-if="!message.isDeleted && showActions">
+    <div class="message-actions" v-if="!message.deletedAt && !isEditing">
       <button class="action-button emoji-button" @click="toggleEmojiPicker">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -152,7 +162,7 @@
           <path d="M20 18v-2a4 4 0 0 0-4-4H4"></path>
         </svg>
       </button>
-      <button v-if="isOwn" class="action-button more-button" @click="toggleMoreActions">
+      <button v-if="isOwn" class="action-button more-button" @click.stop="toggleMoreActions">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="16"
@@ -170,9 +180,8 @@
         </svg>
       </button>
 
-      <!-- More actions dropdown -->
       <div v-if="showMoreActions" class="more-actions-dropdown">
-        <button class="dropdown-item" @click="editMessage">
+        <button class="dropdown-item" @click="startEdit">
           <span class="dropdown-icon">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -215,7 +224,6 @@
       </div>
     </div>
 
-    <!-- Emoji picker -->
     <div v-if="showEmojiPicker" class="emoji-picker">
       <div class="emoji-list">
         <button
@@ -229,7 +237,6 @@
       </div>
     </div>
 
-    <!-- Delete confirmation -->
     <div v-if="showDeleteConfirmation" class="delete-confirmation">
       <div class="confirmation-dialog">
         <div class="confirmation-title">Delete message?</div>
@@ -244,8 +251,10 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import MessageReactions from './MessageReactions.vue'
+import { useMessageStore } from '@/store/messages'
+import { useAuthStore } from '@/store/auth'
 
 export default {
   name: 'MessageItem',
@@ -272,6 +281,12 @@ export default {
     const showMoreActions = ref(false)
     const showEmojiPicker = ref(false)
     const showDeleteConfirmation = ref(false)
+    const isEditing = ref(false)
+    const editContent = ref('')
+    const originalContent = ref('')
+    const editTextarea = ref(null)
+    const messageStore = useMessageStore()
+    const authStore = useAuthStore()
 
     // Common emojis
     const commonEmojis = ['👍', '❤️', '😂', '😮', '😢', '👏', '🎉', '🤔']
@@ -334,14 +349,14 @@ export default {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
     }
 
-    const handleAttachmentClick = (attachment) => {
-      if (isImage(attachment)) {
-        // Open image in a modal or lightbox
-        // Implementation depends on your UI framework
-      } else {
-        // Download the file
-        window.open(attachment.url, '_blank')
+    const getFullPhotoUrl = (relativePath) => {
+      const backendBaseUrl = 'http://localhost:8080'
+      // Ensure the relativePath starts with a '/' for correct URL construction
+      if (relativePath && !relativePath.startsWith('/')) {
+        relativePath = '/' + relativePath
       }
+      'Full photo URL:', `${backendBaseUrl}${relativePath}`
+      return `${backendBaseUrl}${relativePath}`
     }
 
     const toggleMoreActions = () => {
@@ -360,13 +375,94 @@ export default {
 
     const addReaction = (emoji) => {
       showEmojiPicker.value = false
-      store.dispatch('messages/addReaction', { messageId: props.message.id, reaction: emoji })
+      const reaction = {
+        emoji,
+        userId: authStore.user.id,
+        messageId: props.message.id,
+      }
+      messageStore.addReaction(props.message.id, reaction)
     }
 
-    const editMessage = () => {
+    // Edit functionality
+    const startEdit = () => {
+      isEditing.value = true
+      editContent.value = props.message.content
+      originalContent.value = props.message.content
       showMoreActions.value = false
-      // Implement edit functionality
-      // You might want to emit an event to parent component to handle this
+
+      // Focus textarea and adjust height after DOM update
+      nextTick(() => {
+        if (editTextarea.value) {
+          editTextarea.value.focus()
+          adjustTextareaHeight()
+          // Select all text for easy editing
+          editTextarea.value.select()
+        }
+      })
+    }
+
+    const cancelEdit = () => {
+      isEditing.value = false
+      editContent.value = originalContent.value
+    }
+
+    const saveEdit = async () => {
+      if (!editContent.value.trim()) {
+        // Don't save empty messages
+        return
+      }
+
+      if (editContent.value.trim() === originalContent.value.trim()) {
+        // No changes made
+        cancelEdit()
+        return
+      }
+
+      try {
+        await messageStore.updateMessage({
+          messageId: props.message.id,
+          content: editContent.value.trim(),
+        })
+        isEditing.value = false
+        // Update the message content in the prop directly for immediate UI reflection
+        // This assumes message is reactive and this mutation is acceptable.
+        // For stricter immutability, you might emit an event and let the parent handle the update.
+        props.message.content = editContent.value.trim()
+      } catch (error) {
+        console.error('Failed to update message:', error)
+        // Optionally show an error message to the user
+      }
+    }
+
+    const handleEditKeydown = (event) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault()
+        saveEdit()
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        cancelEdit()
+      }
+
+      // Adjust textarea height as user types
+      adjustTextareaHeight()
+    }
+
+    const handleEditBlur = () => {
+      // Small delay to allow save button click to register
+      setTimeout(() => {
+        if (isEditing.value) {
+          saveEdit()
+        }
+      }, 150)
+    }
+
+    const adjustTextareaHeight = () => {
+      nextTick(() => {
+        if (editTextarea.value) {
+          editTextarea.value.style.height = 'auto'
+          editTextarea.value.style.height = editTextarea.value.scrollHeight + 'px'
+        }
+      })
     }
 
     const confirmDelete = () => {
@@ -375,7 +471,7 @@ export default {
     }
 
     const deleteMessage = () => {
-      store.dispatch('messages/deleteMessage', props.message.id)
+      messageStore.deleteMessage(props.message.id)
       showDeleteConfirmation.value = false
     }
 
@@ -421,17 +517,24 @@ export default {
       showMoreActions,
       showEmojiPicker,
       showDeleteConfirmation,
+      isEditing,
+      editContent,
+      editTextarea,
       commonEmojis,
       getInitials,
       formatMessageTime,
       truncateText,
       isImage,
+      getFullPhotoUrl,
       formatFileSize,
-      handleAttachmentClick,
       toggleMoreActions,
       toggleEmojiPicker,
       addReaction,
-      editMessage,
+      startEdit,
+      cancelEdit,
+      saveEdit,
+      handleEditKeydown,
+      handleEditBlur,
       confirmDelete,
       deleteMessage,
       handleMouseEnter,
@@ -442,6 +545,31 @@ export default {
 </script>
 
 <style scoped>
+.message-photo img {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 0.375rem;
+  object-fit: contain;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.message-content {
+  padding: 0.5rem 0.75rem;
+}
+
+.message-content .message-photo {
+  padding: 0;
+  margin: 0;
+  border-radius: 0.375rem;
+  overflow: hidden;
+}
+
+.message-content .message-photo + .message-time,
+.message-content .message-photo + .message-reactions {
+  margin-top: 0.5rem;
+}
+
 .message-wrapper {
   position: relative;
   margin-bottom: 0.5rem;
@@ -511,9 +639,19 @@ export default {
   word-break: break-word;
 }
 
+.message-content.is-editing {
+  background-color: #ffffff;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
 .own-message .message-content {
   background-color: #dbeafe;
   margin-left: auto;
+}
+
+.own-message .message-content.is-editing {
+  background-color: #ffffff;
 }
 
 .message-text {
@@ -548,6 +686,65 @@ export default {
   margin-right: 0.375rem;
   display: flex;
   align-items: center;
+}
+
+/* Edit mode styles */
+.edit-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.edit-textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: none;
+  resize: none;
+  font-family: inherit;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #111827;
+  padding: 0;
+  min-height: 1.5rem;
+  overflow: hidden;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+.edit-action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid #d1d5db;
+  background-color: #ffffff;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.edit-action-button.save {
+  color: #059669;
+  border-color: #059669;
+}
+
+.edit-action-button.save:hover {
+  background-color: #ecfdf5;
+}
+
+.edit-action-button.cancel {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
+.edit-action-button.cancel:hover {
+  background-color: #fef2f2;
 }
 
 /* Reply styles */

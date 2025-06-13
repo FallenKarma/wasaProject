@@ -1,4 +1,3 @@
-<!-- src/components/layout/AppHeader.vue -->
 <template>
   <header class="app-header">
     <div class="header-content">
@@ -10,7 +9,12 @@
         <div class="user-menu" ref="userMenuContainer">
           <button class="user-menu-button" @click="toggleUserMenu">
             <div class="user-avatar">
-              <div class="avatar-placeholder">{{ userInitials }}</div>
+              <img
+                v-if="usersStore.currentUser?.photo"
+                :src="getFullPhotoUrl(usersStore.currentUser?.photo)"
+                class="avatar"
+              />
+              <div v-else class="avatar-placeholder">{{ userInitials }}</div>
             </div>
             <span class="username">{{ username }}</span>
             <svg
@@ -33,7 +37,12 @@
           <div v-if="isUserMenuOpen" class="user-dropdown">
             <div class="user-info">
               <div class="user-avatar">
-                <div class="avatar-placeholder">{{ userInitials }}</div>
+                <img
+                  v-if="usersStore.currentUser?.photo"
+                  :src="getFullPhotoUrl(usersStore.currentUser?.photo)"
+                  class="avatar"
+                />
+                <div v-else class="avatar-placeholder">{{ userInitials }}</div>
               </div>
               <div>
                 <div class="user-fullname">{{ username }}</div>
@@ -43,7 +52,14 @@
             <div class="menu-divider"></div>
 
             <ul class="menu-items">
-              <li @click="navigateTo('/profile')">
+              <li @click="triggerProfilePhotoUpload">
+                <input
+                  type="file"
+                  ref="profilePhotoInput"
+                  @change="handleProfilePhotoChange"
+                  accept="image/*"
+                  style="display: none"
+                />
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="16"
@@ -58,26 +74,7 @@
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                   <circle cx="12" cy="7" r="4"></circle>
                 </svg>
-                <span>Profile</span>
-              </li>
-              <li @click="navigateTo('/settings')">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <circle cx="12" cy="12" r="3"></circle>
-                  <path
-                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z"
-                  ></path>
-                </svg>
-                <span>Settings</span>
+                <span>Set profile photo</span>
               </li>
               <li class="logout-item" @click="logout">
                 <svg
@@ -109,16 +106,19 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAuthStore } from '@/store/auth'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '@/store/users' // Corrected typo here
 
 export default {
   name: 'AppHeader',
   setup() {
     const authStore = useAuthStore()
     const router = useRouter()
+    const usersStore = useUserStore()
 
     // User menu state
     const isUserMenuOpen = ref(false)
     const userMenuContainer = ref(null)
+    const profilePhotoInput = ref(null) // Ref for the hidden file input
 
     // User data from store
     const username = computed(() => authStore.name)
@@ -140,12 +140,34 @@ export default {
       }
     }
 
-    // Search functionality
+    // Trigger file input click
+    const triggerProfilePhotoUpload = () => {
+      profilePhotoInput.value.click()
+      isUserMenuOpen.value = false // Close the menu after triggering
+    }
 
-    // Navigate to route
-    const navigateTo = (route) => {
-      router.push(route)
-      isUserMenuOpen.value = false
+    // Handle file selection and upload
+    const handleProfilePhotoChange = async (event) => {
+      const file = event.target.files[0]
+      if (file) {
+        try {
+          await usersStore.uploadProfilePhoto(file)
+          // Optionally, show a success message or update the UI
+          console.log('Profile photo uploaded successfully!')
+        } catch (error) {
+          // Handle error, e.g., show an error message to the user
+          console.error('Error uploading profile photo:', error)
+          alert('Failed to upload profile photo. Please try again.')
+        }
+      }
+    }
+
+    const getFullPhotoUrl = (relativePath) => {
+      const backendBaseUrl = 'http://localhost:8080'
+      if (relativePath && !relativePath.startsWith('/')) {
+        relativePath = '/' + relativePath
+      }
+      return `${backendBaseUrl}${relativePath}`
     }
 
     // Logout
@@ -156,22 +178,26 @@ export default {
 
     // Setup event listeners
     onMounted(() => {
+      usersStore.fetchCurrentUser()
       document.addEventListener('click', handleClickOutside)
+    })
 
-      // Clean up
-      onUnmounted(() => {
-        document.removeEventListener('click', handleClickOutside)
-      })
+    onUnmounted(() => {
+      document.removeEventListener('click', handleClickOutside)
     })
 
     return {
       isUserMenuOpen,
       userMenuContainer,
+      profilePhotoInput,
       username,
+      usersStore,
       userInitials,
+      getFullPhotoUrl,
       toggleUserMenu,
       logout,
-      navigateTo,
+      triggerProfilePhotoUpload,
+      handleProfilePhotoChange,
     }
   },
 }
@@ -232,11 +258,20 @@ export default {
 }
 
 .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   overflow: hidden;
-  background-color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .avatar-placeholder {

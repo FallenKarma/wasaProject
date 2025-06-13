@@ -4,18 +4,150 @@ info:
   description: |-
     This OpenAPI document defines the API for the WASAText application.
     It supports messaging, groups, simplified login, and user profile management.
-  version: 1.0.0
+  version: "1.0.0"
+
 servers:
-  - url: https://virtserver.swaggerhub.com/fallenkarma/wasaProject/1.0.0
-    description: SwaggerHub API Auto Mocking
+  # Added by API Auto Mocking Plugin
+  - description: SwaggerHub API Auto Mocking
+    url: https://virtserver.swaggerhub.com/fallenkarma/wasaProject/1.0.0
   - url: http://localhost:8080/api
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: string
+  schemas:
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/ConversationType"
+        photo:
+          type: string
+          format: uri
+        participants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Participant"
+        lastMessage:
+          $ref: "#/components/schemas/Message"
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+    ConversationType:
+      type: string
+      enum:
+        - direct
+        - group
+    CreateConversationRequest:
+      type: object
+      properties:
+        participants:
+          type: array
+          items:
+            type: string
+          description: UserIDs of participants (excluding the creator)
+        type:
+          $ref: "#/components/schemas/ConversationType"
+        name:
+          type: string
+      required:
+        - participants
+        - type
+        - name
+    SendMessageRequest:
+      type: object
+      properties:
+        conversationId:
+          type: string
+        sender:
+          $ref: "#/components/schemas/User"
+        content:
+          type: string
+        type:
+          $ref: "#/components/schemas/MessageType"
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        sender:
+          $ref: "#/components/schemas/User"
+        timestamp:
+          type: string
+          format: date-time
+        content:
+          type: string
+        type:
+          $ref: "#/components/schemas/MessageType"
+        status:
+          $ref: "#/components/schemas/MessageStatus"
+        replyTo:
+          type: string
+        deletedAt:
+          type: string
+          format: date-time
+        reactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Reaction"
+    MessageStatus:
+      type: string
+      enum:
+        - sent
+        - received
+        - read
+    MessageType:
+      type: string
+      enum:
+        - text
+        - photo
+    Participant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        photo:
+          type: string
+          format: uri
+    Reaction:
+      type: object
+      properties:
+        messageId:
+          type: string
+        userI:
+          type: string
+        emoji:
+          type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        photo:
+          type: string
+          format: uri
+
 security:
   - bearerAuth: []
+
 paths:
   /session:
     post:
-      tags:
-        - login
+      tags: [login]
       summary: Logs in the user
       description: |-
         If the user does not exist, it will be created, and an identifier is returned.
@@ -23,58 +155,77 @@ paths:
       operationId: doLogin
       requestBody:
         description: User details
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/session_body"
-        required: true
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: Maria
+                  minLength: 3
+                  maxLength: 16
       responses:
         "201":
           description: User log-in action successful
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/inline_response_201"
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: "f54321a2-24f5-420a-91c7-bfa3d874722f"
+
   /users/me/username:
     put:
-      tags:
-        - user
+      tags: [user]
       summary: Update user's name
       operationId: setMyUserName
+      security:
+        - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/me_username_body"
-        required: true
+              type: object
+              properties:
+                name:
+                  type: string
       responses:
         "200":
           description: Username updated
-      security:
-        - bearerAuth: []
+
   /users/me/photo:
     put:
-      tags:
-        - user
+      tags: [user]
       summary: Set user photo
       operationId: setMyPhoto
+      security:
+        - bearerAuth: []
       requestBody:
+        required: true
         content:
           multipart/form-data:
             schema:
-              $ref: "#/components/schemas/me_photo_body"
-        required: true
+              type: object
+              properties:
+                photo:
+                  type: string
+                  format: binary
       responses:
         "200":
           description: Photo uploaded
-      security:
-        - bearerAuth: []
+
   /conversations:
     get:
-      tags:
-        - conversation
+      tags: [conversation]
       summary: Get user's conversations
       operationId: getMyConversations
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: List of conversations
@@ -84,20 +235,38 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Conversation"
+
+    post:
+      tags: [conversation]
+      summary: Create a new conversation
+      operationId: newConversation
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConversationRequest"
+      responses:
+        "201":
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Conversation"
+
   /conversations/{id}:
     get:
-      tags:
-        - conversation
+      tags: [conversation]
       summary: Get specific conversation
       operationId: getConversation
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       responses:
@@ -107,305 +276,194 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Conversation"
-      security:
-        - bearerAuth: []
+
   /messages:
     post:
-      tags:
-        - message
+      tags: [message]
       summary: Send a new message
       operationId: sendMessage
+      security:
+        - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/Message"
-        required: true
+              $ref: "#/components/schemas/SendMessageRequest"
       responses:
         "201":
           description: Message sent
-      security:
-        - bearerAuth: []
+
   /messages/forward:
     post:
-      tags:
-        - message
+      tags: [message]
       summary: Forward a message
       operationId: forwardMessage
+      security:
+        - bearerAuth: []
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/messages_forward_body"
-        required: true
+              type: object
+              properties:
+                messageId:
+                  type: string
+                targetConversationId:
+                  type: string
       responses:
         "200":
           description: Message forwarded
+
+  /messages/{id}/reaction:
+    post:
+      tags: [message]
+      summary: Add a reaction to a message
+      operationId: commentMessage
       security:
         - bearerAuth: []
-  /messages/{id}/comment:
-    post:
-      tags:
-        - message
-      summary: Comment a message
-      operationId: commentMessage
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/Reaction"
-        required: true
       responses:
         "200":
           description: Comment added
+
+    delete:
+      tags: [message]
+      summary: Remove reaction from message
+      operationId: uncommentMessage
       security:
         - bearerAuth: []
-    delete:
-      tags:
-        - message
-      summary: Remove comment from message
-      operationId: uncommentMessage
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       responses:
         "200":
           description: Comment removed
-      security:
-        - bearerAuth: []
+
   /messages/{id}:
     delete:
-      tags:
-        - message
+      tags: [message]
       summary: Delete a message
       operationId: deleteMessage
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       responses:
         "204":
           description: Message deleted
-      security:
-        - bearerAuth: []
+
   /groups/{id}/members:
     post:
-      tags:
-        - group
+      tags: [group]
       summary: Add user to group
       operationId: addToGroup
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/id_members_body"
-        required: true
+              type: object
+              properties:
+                userId:
+                  type: string
       responses:
         "200":
           description: User added
-      security:
-        - bearerAuth: []
+
   /groups/{id}/leave:
     post:
-      tags:
-        - group
+      tags: [group]
       summary: Leave group
       operationId: leaveGroup
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       responses:
         "200":
           description: Left group
-      security:
-        - bearerAuth: []
+
   /groups/{id}/name:
     put:
-      tags:
-        - group
+      tags: [group]
       summary: Set group name
       operationId: setGroupName
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/id_name_body"
-        required: true
+              type: object
+              properties:
+                name:
+                  type: string
       responses:
         "200":
           description: Group name updated
-      security:
-        - bearerAuth: []
+
   /groups/{id}/photo:
     put:
-      tags:
-        - group
+      tags: [group]
       summary: Set group photo
       operationId: setGroupPhoto
+      security:
+        - bearerAuth: []
       parameters:
-        - name: id
-          in: path
+        - in: path
+          name: id
           required: true
-          style: simple
-          explode: false
           schema:
             type: string
       requestBody:
+        required: true
         content:
           multipart/form-data:
             schema:
-              $ref: "#/components/schemas/id_photo_body"
-        required: true
+              type: object
+              properties:
+                photo:
+                  type: string
+                  format: binary
       responses:
         "200":
           description: Group photo set
-      security:
-        - bearerAuth: []
-components:
-  schemas:
-    User:
-      type: object
-      properties:
-        identifier:
-          type: string
-        name:
-          type: string
-        photo:
-          type: string
-          format: uri
-    Message:
-      type: object
-      properties:
-        id:
-          type: string
-        sender:
-          type: string
-        timestamp:
-          type: string
-          format: date-time
-        content:
-          type: string
-        type:
-          type: string
-          enum:
-            - text
-            - photo
-        status:
-          type: string
-          enum:
-            - sent
-            - received
-            - read
-    Conversation:
-      type: object
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        participants:
-          type: array
-          items:
-            type: string
-        messages:
-          type: array
-          items:
-            $ref: "#/components/schemas/Message"
-    Reaction:
-      type: object
-      properties:
-        user:
-          type: string
-        emoji:
-          type: string
-    session_body:
-      type: object
-      properties:
-        name:
-          maxLength: 16
-          minLength: 3
-          type: string
-          example: Maria
-    inline_response_201:
-      type: object
-      properties:
-        identifier:
-          type: string
-          example: abcdef012345
-    me_username_body:
-      type: object
-      properties:
-        name:
-          type: string
-    me_photo_body:
-      type: object
-      properties:
-        photo:
-          type: string
-          format: binary
-    messages_forward_body:
-      type: object
-      properties:
-        messageId:
-          type: string
-        targetConversationId:
-          type: string
-    id_members_body:
-      type: object
-      properties:
-        userId:
-          type: string
-    id_name_body:
-      type: object
-      properties:
-        name:
-          type: string
-    id_photo_body:
-      type: object
-      properties:
-        photo:
-          type: string
-          format: binary
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: string

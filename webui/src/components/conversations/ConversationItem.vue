@@ -103,13 +103,17 @@ export default {
       const message = props.conversation.lastMessage
 
       // For media messages
-      if (message.attachments && message.attachments.length > 0) {
-        return '📎 Media'
+      if (message.type === 'photo') {
+        return '🖼️ Photo'
       }
 
       // For text messages
       if (message.content) {
         // Truncate long messages
+        if (message.deletedAt) {
+          return 'Message deleted'
+        }
+
         return message.content.length > 40
           ? message.content.substring(0, 40) + '...'
           : message.content

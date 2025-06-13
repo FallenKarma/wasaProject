@@ -89,10 +89,7 @@ export const useAuthStore = defineStore('auth', {
       try {
         const response = await apiClient.post('/session', { name: username })
 
-        // Response expected format:
-        // { userId: 'user-id-123', username: 'username', isNewUser: true/false }
         const { id } = response.data
-        console.log('Login response:', response.data)
 
         // Create user object that includes all data from response
         const user = {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -180,6 +181,32 @@ func (h *Handler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[%s] Retrieved users | UserID: %s | Count: %d | Duration: %s", 
 		handlerName, userID, len(users), time.Since(start))
+	
+	respondWithJSON(w, http.StatusOK, users)
+}
+
+func (h *Handler) GetMyUser(w http.ResponseWriter, r *http.Request) {
+	handlerName := "GetMyUser"
+	start := time.Now()
+	
+	userID := getUserIDFromContext(r)
+	if userID == "" {
+		log.Printf("[%s] %s %s | Not authenticated | IP: %s", handlerName, r.Method, r.URL.Path, r.RemoteAddr)
+		respondWithError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	logRequest(handlerName, r, userID)
+
+	users, err := h.service.GetUser(r.Context(), userID)
+	if err != nil {
+		logError(handlerName, r, userID, err, "Failed to get users")
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	log.Printf("[%s] Retrieved user | UserID: %s | Duration: %s", 
+		handlerName, userID, time.Since(start))
 	
 	respondWithJSON(w, http.StatusOK, users)
 }
@@ -386,11 +413,13 @@ func (h *Handler) GetConversation(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, conversation)
 }
 
+const MAX_PHOTO_SIZE = 10 * 1024 * 1024 // 10 MB
+
 // SendMessage handles sending a new message
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	handlerName := "SendMessage"
 	start := time.Now()
-	
+
 	userID := getUserIDFromContext(r)
 	if userID == "" {
 		log.Printf("[%s] %s %s | Not authenticated | IP: %s", handlerName, r.Method, r.URL.Path, r.RemoteAddr)
@@ -399,42 +428,107 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logRequest(handlerName, r, userID)
-	
-	var msg models.Message
-	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
-		logError(handlerName, r, userID, err, "Invalid request payload")
-		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
-		return
-	}
 
-	// Extract conversation ID and message content
-	conversationID := msg.ConversationID // Assuming the ID field contains the conversation ID
-	content := msg.Content
-	replyToID := msg.ReplyTo
+	// Determine the content type of the request
+	contentType := r.Header.Get("Content-Type")
 
-
-	// Check message type and process accordingly
 	var newMsg *models.Message
 	var err error
+	var conversationID string
+	var replyToID string
+	var messageType models.MessageType // To store the determined message type
 
-	if msg.Type == models.TextMessage {
-		newMsg, err = h.service.SendTextMessage(r.Context(), userID, conversationID, content, replyToID.String)
+	if isMultipartFormData(contentType) {
+		// Handle multipart/form-data (for photo messages)
+		messageType = models.PhotoMessage // Assume photo message if multipart
+
+		// Parse the multipart form data
+		// Max memory 10MB for parsed form values and files
+		err = r.ParseMultipartForm(MAX_PHOTO_SIZE)
+		if err != nil {
+			logError(handlerName, r, userID, err, "Failed to parse multipart form")
+			respondWithError(w, http.StatusBadRequest, "Failed to parse multipart form: "+err.Error())
+			return
+		}
+
+		// Get conversation ID from form field
+		conversationID = r.FormValue("conversationId")
+		if conversationID == "" {
+			logError(handlerName, r, userID, errors.New("missing conversationId form field"), "Missing conversation ID for photo message")
+			respondWithError(w, http.StatusBadRequest, "Missing conversation ID")
+			return
+		}
+
+		// Get replyTo ID from form field (optional)
+		replyToID = r.FormValue("replyTo") // This will be "" if not provided
+
+		// Get the photo file
+		file, _, fileErr := r.FormFile("photo") // "photo" is the expected field name for the file
+		if fileErr != nil {
+			if fileErr == http.ErrMissingFile {
+				logError(handlerName, r, userID, fileErr, "Missing photo file in request")
+				respondWithError(w, http.StatusBadRequest, "Missing photo file")
+			} else {
+				logError(handlerName, r, userID, fileErr, "Error getting photo file")
+				respondWithError(w, http.StatusInternalServerError, "Error getting photo file: "+fileErr.Error())
+			}
+			return
+		}
+		defer file.Close() // Ensure the file is closed
+
+		// Call the service to send the photo message
+		newMsg, err = h.service.SendPhotoMessage(r.Context(), userID, conversationID, file, replyToID)
+
+	} else if isApplicationJSON(contentType) {
+		// Handle application/json (for text messages)
+		messageType = models.TextMessage // Assume text message if JSON
+
+		var msg models.Message
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			logError(handlerName, r, userID, err, "Invalid request payload")
+			respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+			return
+		}
+
+		// Extract conversation ID and message content
+		conversationID = msg.ConversationID
+		content := msg.Content
+		
+        // Handle replyTo ID - ensure it's a string, even if the model uses *string
+        if msg.ReplyTo != nil {
+            replyToID = *msg.ReplyTo
+        } else {
+            replyToID = ""
+        }
+
+		// Call the service to send the text message
+		newMsg, err = h.service.SendTextMessage(r.Context(), userID, conversationID, content, &replyToID)
+
 	} else {
-		log.Printf("[%s] Invalid message type | UserID: %s | Type: %s", handlerName, userID, msg.Type)
-		respondWithError(w, http.StatusBadRequest, "Invalid message type for this endpoint")
+		// Unsupported content type
+		logError(handlerName, r, userID, nil, fmt.Sprintf("Unsupported content type: %s", contentType))
+		respondWithError(w, http.StatusBadRequest, "Unsupported content type. Expected application/json or multipart/form-data")
 		return
 	}
 
 	if err != nil {
-		logError(handlerName, r, userID, err, fmt.Sprintf("Failed to send message to conversation: %s", conversationID))
+		logError(handlerName, r, userID, err, fmt.Sprintf("Failed to send %s message to conversation: %s", messageType, conversationID))
 		respondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	log.Printf("[%s] Message sent | UserID: %s | ConvID: %s | MessageID: %s | Duration: %s", 
-		handlerName, userID, conversationID, newMsg.ConversationID, time.Since(start))
-	
+	log.Printf("[%s] %s message sent | UserID: %s | ConvID: %s | MessageID: %s | Duration: %s",
+		handlerName, messageType, userID, newMsg.ID, time.Since(start)) // Use newMsg.ID for the message ID
 	respondWithJSON(w, http.StatusCreated, newMsg)
+}
+
+// Helper functions to check content type (add these if you don't have them)
+func isMultipartFormData(contentType string) bool {
+	return len(contentType) >= len("multipart/form-data") && contentType[:len("multipart/form-data")] == "multipart/form-data"
+}
+
+func isApplicationJSON(contentType string) bool {
+	return len(contentType) >= len("application/json") && contentType[:len("application/json")] == "application/json"
 }
 
 // ForwardMessage handles forwarding a message to another conversation
@@ -567,6 +661,42 @@ func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[%s] Message deleted | UserID: %s | MessageID: %s | Duration: %s", 
+		handlerName, userID, messageID, time.Since(start))
+	
+	respondWithJSON(w, http.StatusNoContent, nil)
+}
+
+// UpdateMessage updates a message
+func (h *Handler) UpdateMessage(w http.ResponseWriter, r *http.Request) {
+	handlerName := "UpdateMessage"
+	start := time.Now()
+	
+	userID := getUserIDFromContext(r)
+	if userID == "" {
+		log.Printf("[%s] %s %s | Not authenticated | IP: %s", handlerName, r.Method, r.URL.Path, r.RemoteAddr)
+		respondWithError(w, http.StatusUnauthorized, "Not authenticated")
+		return
+	}
+
+	vars := mux.Vars(r)
+	messageID := vars["id"]
+
+	var req models.UpdateMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	
+	logRequest(handlerName, r, userID)
+	log.Printf("[%s] Updating message | UserID: %s | MessageID: %s", handlerName, userID, messageID)
+
+	if err := h.service.UpdateMessage(r.Context(), userID, messageID, req.Content); err != nil {
+		logError(handlerName, r, userID, err, fmt.Sprintf("Failed to update message: %s", messageID))
+		respondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	log.Printf("[%s] Message updated | UserID: %s | MessageID: %s | Duration: %s", 
 		handlerName, userID, messageID, time.Since(start))
 	
 	respondWithJSON(w, http.StatusNoContent, nil)

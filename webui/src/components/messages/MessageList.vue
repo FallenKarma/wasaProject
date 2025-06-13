@@ -111,6 +111,7 @@
 import { ref, computed, onMounted, onUpdated, watch, nextTick } from 'vue'
 import MessageItem from './MessageItem.vue'
 import { useAuthStore } from '@/store/auth'
+import { useMessageStore } from '@/store/messages'
 
 export default {
   name: 'MessageList',
@@ -120,6 +121,10 @@ export default {
   props: {
     messages: {
       type: Array,
+      required: true,
+    },
+    conversationId: {
+      type: [String, Number],
       required: true,
     },
     isLoadingMessages: {
@@ -134,15 +139,52 @@ export default {
     const replyingTo = ref(null)
     const autoScrollToBottom = ref(true)
     const authStore = useAuthStore()
+    const messageStore = useMessageStore()
 
     // Computed
     const currentUserId = computed(() => authStore.user?.id)
+    const messages = computed(() => messageStore.allMessages)
+
+    // Function to "hydrate" the replied-to message data
+    const hydrateReplyToMessages = (messages) => {
+      if (!messages || messages.length === 0) return []
+
+      // Create a map for quick lookup of messages by ID
+      const messageMap = new Map(messages.map((msg) => [msg.id, msg]))
+
+      return messages.map((message) => {
+        // Check if the message has a replyTo object with a valid String ID
+        if (message.replyTo) {
+          const repliedMessageId = message.replyTo
+          const repliedToMessage = messageMap.get(repliedMessageId)
+
+          // If the replied-to message is found in the current list,
+          // attach its relevant data.
+          if (repliedToMessage) {
+            return {
+              ...message,
+              repliedToMessageData: {
+                // New property to hold the hydrated data
+                id: repliedToMessage.id,
+                sender: repliedToMessage.sender.name,
+                content: repliedToMessage.content,
+              },
+            }
+          }
+        }
+        return message // Return the message as is if no reply or invalid replyTo
+      })
+    }
 
     // Sort messages to ensure newest messages are at the bottom
     const sortedMessages = computed(() => {
-      if (!props.messages?.length) return []
+      if (!messages.value.length) return []
 
-      return [...props.messages].sort((a, b) => {
+      // First, hydrate the replyTo data
+      const hydratedMessages = hydrateReplyToMessages(messages.value)
+
+      // Then, sort the hydrated messages
+      return [...hydratedMessages].sort((a, b) => {
         const dateA = new Date(a.createdAt)
         const dateB = new Date(b.createdAt)
         return dateA - dateB // Ascending order (oldest first, newest at bottom)
@@ -159,7 +201,9 @@ export default {
       if (index === 0) return true
 
       const prevMessage = sortedMessages.value[index - 1]
-      return prevMessage.sender.ID !== message.sender.ID
+      // Assuming sender.ID is the correct field for comparing senders.
+      // Make sure it's consistent with your actual message object structure.
+      return prevMessage.sender.id !== message.sender.id
     }
 
     const shouldShowDateSeparator = (message, index) => {
@@ -249,8 +293,17 @@ export default {
       return text.length > maxLength ? text.substring(0, maxLength) + '...' : text
     }
 
+    const fetchMessages = async () => {
+      try {
+        await messageStore.fetchMessages(props.conversationId)
+      } catch (error) {
+        console.error('Failed to fetch messages:', error)
+      }
+    }
+
     // Lifecycle hooks
     onMounted(() => {
+      fetchMessages()
       if (messageListRef.value) {
         messageListRef.value.addEventListener('scroll', handleScroll)
 
@@ -313,7 +366,7 @@ export default {
       messageListRef,
       showScrollToBottom,
       replyingTo,
-      sortedMessages,
+      sortedMessages, // This will now contain the hydrated messages
       isOwnMessage,
       shouldShowAvatar,
       shouldShowDateSeparator,

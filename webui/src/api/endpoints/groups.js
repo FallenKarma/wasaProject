@@ -14,6 +14,7 @@ export const groupsApi = {
   },
 
   setPhoto(groupId, photoFile) {
+    console.log('Setting group photo:', groupId, photoFile)
     const formData = new FormData()
     formData.append('photo', photoFile)
 
@@ -24,3 +25,5 @@ export const groupsApi = {
     })
   },
 }
+
+export default groupsApi

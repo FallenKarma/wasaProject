@@ -71,6 +71,8 @@ type MessageRepository interface {
 	
 	// UpdateMessageStatus updates the status of a message
 	UpdateMessageStatus(ctx context.Context, id string, status models.MessageStatus) error
+
+	UpdateMessageContent(ctx context.Context, id string, content string) error
 	
 	// SaveMessagePhoto saves a photo message
 	SaveMessagePhoto(ctx context.Context, senderID string, photo multipart.File) (string, error)

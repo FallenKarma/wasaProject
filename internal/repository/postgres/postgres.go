@@ -35,14 +35,24 @@ func NewPostgresRepository(connStr string, uploadPath string) (*PostgresReposito
 		return nil, err
 	}
 
+	ex, err := os.Executable()
+    if err != nil {
+        return nil, fmt.Errorf("failed to get executable path: %w", err)
+    }
+    exPath := filepath.Dir(ex) // This gives you C:\progettiPersonali\wasaProject\bin (if you build to bin)
+
+    // Define your desired uploads directory relative to the executable
+    // Example: Create an "uploads" folder next to your executable
+    uploadsDir := filepath.Join(exPath, "uploads")
+
 	// Create upload directory if it doesn't exist
-	if err := os.MkdirAll(uploadPath, 0755); err != nil {
+	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
 		return nil, err
 	}
 
 	return &PostgresRepository{
 		db:          db,
-		uploadPath:  uploadPath,
+		uploadPath:  uploadsDir,
 	}, nil
 }
 
@@ -136,6 +146,7 @@ func (r *PostgresRepository) UpdateUsername(ctx context.Context, userID string, 
 func (r *PostgresRepository) SaveUserPhoto(ctx context.Context, userID string, photo multipart.File) (string, error) {
 	// Create user photos directory if it doesn't exist
 	userPhotosDir := filepath.Join(r.uploadPath, "user_photos")
+	log.Println("User photos directory:", userPhotosDir)
 	if err := os.MkdirAll(userPhotosDir, 0755); err != nil {
 		return "", err
 	}
@@ -204,8 +215,9 @@ func (r *PostgresRepository) CreateDirectConversation(ctx context.Context, userI
         		conversation_id
 			FROM 
 				conversation_participants
+			JOIN conversations ON conversation_participants.conversation_id = conversations.id
 			WHERE 
-				user_id IN ($1,$2)
+				user_id IN ($1,$2) AND conversations.type = 'direct'
 			GROUP BY 
 				conversation_id
 			HAVING 
@@ -315,7 +327,7 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 	conv.Type = models.ConversationType(convType)
 
 	// Get participants
-	partQuery := "SELECT cp.user_id, u.name FROM conversation_participants cp JOIN users u ON u.id = cp.user_id  WHERE cp.conversation_id = $1"
+	partQuery := "SELECT cp.user_id, u.name, u.photo_url FROM conversation_participants cp JOIN users u ON u.id = cp.user_id  WHERE cp.conversation_id = $1"
 	partRows, err := r.db.QueryContext(ctx, partQuery, id)
 	if err != nil {
 		return nil, err
@@ -325,13 +337,22 @@ func (r *PostgresRepository) GetConversationByID(ctx context.Context, id string)
 	for partRows.Next() {
 		var userID string
 		var userName string
-		if err := partRows.Scan(&userID,&userName); err != nil {
+		var photo_url sql.NullString
+		if err := partRows.Scan(&userID,&userName, &photo_url); err != nil {
 			return nil, err
 		}
+		
+		userPhotoUrl := ""
+		if photo_url.Valid {
+			userPhotoUrl = photo_url.String
+		}
+		
 		conv.Participants = append(conv.Participants, models.Participant{
             ID:   userID,
             Name: userName,
+			PhotoURL: userPhotoUrl,
         })
+
 	}
 	if err := partRows.Err(); err != nil {
 		return nil, err
@@ -585,10 +606,10 @@ func (r *PostgresRepository) CreateMessage(ctx context.Context, msg models.Messa
 func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, conversationID string) ([]models.Message, error) {
 	// Get messages with user information
 	query := `
-		SELECT m.conversation_id, m.sender_id, u.name, u.photo_url, m.content, m.type, m.status, m.reply_to, m.timestamp
+		SELECT m.id, m.conversation_id, m.sender_id, u.name, u.photo_url, m.content, m.type, m.status, m.reply_to, m.timestamp, m.deleted_at
 		FROM messages m
 		INNER JOIN users u ON m.sender_id = u.id
-		WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
+		WHERE m.conversation_id = $1
 		ORDER BY m.timestamp ASC
 	`
 	
@@ -601,10 +622,11 @@ func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, co
 	var messages []models.Message
 	for rows.Next() {
 		var msg models.Message
-		var replyTo sql.NullString
 		var photoURL sql.NullString // Handle potential NULL photo_url
+
 		
-		if err := rows.Scan(                 
+		if err := rows.Scan(   
+			&msg.ID,                    // m.id              
 			&msg.ConversationID,        // m.conversation_id
 			&msg.Sender.ID,             // m.sender_id (User.ID)
 			&msg.Sender.Name,           // u.name (User.Name)
@@ -612,8 +634,9 @@ func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, co
 			&msg.Content,               // m.content
 			&msg.Type,                  // m.type
 			&msg.Status,                // m.status
-			&replyTo,                   // m.reply_to
+			&msg.ReplyTo,                   // m.reply_to
 			&msg.Timestamp,             // m.timestamp
+			&msg.DeletedAt,             // m.deleted_at
 		); err != nil {
 			return nil, err
 		}
@@ -623,13 +646,12 @@ func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, co
 			msg.Sender.PhotoURL = photoURL.String
 		}
 
-		// Handle nullable reply_to
-		if replyTo.Valid {
-			msg.ReplyTo = sql.NullString{
-				String: replyTo.String,
-				Valid:  true,
-			}
+		reactions, err := r.GetReactionsByMessageID(ctx, msg.ID)
+		if err != nil {
+			return nil, err
 		}
+		msg.Reactions = reactions
+
 
 		messages = append(messages, msg)
 	}
@@ -643,26 +665,21 @@ func (r *PostgresRepository) GetMessagesByConversationID(ctx context.Context, co
 // GetMessageByID implements MessageRepository.GetMessageByID
 func (r *PostgresRepository) GetMessageByID(ctx context.Context, id string) (*models.Message, error) {
 	query := `
-		SELECT id, sender_id, content, type, status, reply_to, timestamp, conversation_id
-		FROM messages
-		WHERE id = $1 AND deleted_at IS NULL
+		SELECT m.id, m.sender_id, u.name, m.content, m.type, m.status, m.reply_to, m.timestamp, m.conversation_id
+		FROM messages m
+		INNER JOIN users u ON m.sender_id = u.id
+		WHERE m.id = $1 
 	`
 	row := r.db.QueryRowContext(ctx, query, id)
 
 	var msg models.Message
-	var replyTo, conversationID sql.NullString
-	err := row.Scan(&msg.ConversationID, &msg.Sender, &msg.Content, &msg.Type, &msg.Status, &replyTo, &msg.Timestamp, &conversationID)
+	var conversationID sql.NullString
+	err := row.Scan(&msg.ConversationID, &msg.Sender.ID, &msg.Sender.Name, &msg.Content, &msg.Type, &msg.Status, &msg.ReplyTo, &msg.Timestamp, &conversationID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
-	}
-	if replyTo.Valid {
-		msg.ReplyTo = sql.NullString{
-							String: replyTo.String,
-							Valid: true,
-						}
 	}
 
 	return &msg, nil
@@ -682,6 +699,14 @@ func (r *PostgresRepository) UpdateMessageStatus(ctx context.Context, id string,
 	_, err := r.db.ExecContext(ctx, query, status, id)
 	return err
 }
+
+// UpdateMessageStatus implements MessageRepository.UpdateMessageStatus
+func (r *PostgresRepository) UpdateMessageContent(ctx context.Context, id string, content string) error {
+	query := "UPDATE messages SET content = $1 WHERE id = $2"
+	_, err := r.db.ExecContext(ctx, query, content, id)
+	return err
+}
+
 
 // SaveMessagePhoto implements MessageRepository.SaveMessagePhoto
 func (r *PostgresRepository) SaveMessagePhoto(ctx context.Context, senderID string, photo multipart.File) (string, error) {

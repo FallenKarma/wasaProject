@@ -11,16 +11,11 @@ const conversationsApi = {
   },
 
   create(conversationData) {
-    console.log('Creating conversation with data:', conversationData)
     return apiClient.post('/conversations', conversationData)
   },
 
   update(id, conversationData) {
     return apiClient.put(`/conversations/${id}`, conversationData)
-  },
-
-  delete(id) {
-    return apiClient.delete(`/conversations/${id}`)
   },
 }
 

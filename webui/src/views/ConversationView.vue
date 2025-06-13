@@ -12,11 +12,18 @@
 
         <MessageList
           :messages="messages"
+          :conversationId="conversationId"
           :isLoadingMessages="isLoadingMessages"
           @load-more="loadMoreMessages"
+          @reply-message="handleReplyMessage"
         />
 
-        <MessageInput :conversationId="conversationId" @message-sent="handleMessageSent" />
+        <MessageInput
+          :conversationId="conversationId"
+          :replyingTo="replyingTo"
+          @message-sent="handleMessageSent"
+          @cancel-reply="handleCancelReply"
+        />
       </template>
 
       <div v-else class="empty-state">
@@ -147,6 +154,7 @@ export default {
     const isLoadingMessages = ref(false)
     const showInfo = ref(false)
     const mediaFiles = ref([])
+    const replyingTo = ref(null)
 
     // Computed
     const conversationId = computed(() => route.params.conversationId)
@@ -181,8 +189,10 @@ export default {
     }
 
     const handleMessageSent = (message) => {
+      console.log('Message sent:', message)
       // Optimistically add message to the list
       conversationStore.addMessageToConversation(conversationId.value, message)
+      replyingTo.value = null
 
       // Scroll to the bottom of the message list
       setTimeout(() => {
@@ -191,6 +201,15 @@ export default {
           messageList.scrollTop = messageList.scrollHeight
         }
       }, 100)
+    }
+
+    const handleReplyMessage = (message) => {
+      replyingTo.value = message
+    }
+
+    const handleCancelReply = () => {
+      console.log('Reply cancelled')
+      replyingTo.value = null
     }
 
     const showConversationInfo = () => {
@@ -269,7 +288,10 @@ export default {
       messages,
       showInfo,
       mediaFiles,
+      replyingTo,
       loadMoreMessages,
+      handleReplyMessage,
+      handleCancelReply,
       handleMessageSent,
       showConversationInfo,
       openMedia,
