@@ -1,69 +1,71 @@
 <!-- src/components/messages/MessageList.vue -->
 <template>
-  <div class="message-list" ref="messageListRef">
-    <div v-if="isLoadingMessages && !messages.length" class="loading-state">
-      <div class="loading-spinner"></div>
-      <p>Loading messages...</p>
-    </div>
-
-    <div v-else-if="!messages.length" class="empty-state">
-      <div class="empty-icon">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="40"
-          height="40"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-        </svg>
-      </div>
-      <p>No messages yet</p>
-      <p class="help-text">Start the conversation by sending a message below.</p>
-    </div>
-
-    <template v-else>
-      <div class="messages-container">
-        <template v-for="(message, index) in sortedMessages" :key="message.id">
-          <!-- Date separator -->
-          <div v-if="shouldShowDateSeparator(message, index)" class="date-separator">
-            <span>{{ formatMessageDate(message.timestamp) }}</span>
-          </div>
-
-          <!-- Message item -->
-          <MessageItem
-            :message="message"
-            :isOwn="isOwnMessage(message)"
-            :showAvatar="shouldShowAvatar(message, index)"
-            @reaction="handleReaction"
-            @reply="handleReply"
-          />
-        </template>
+  <div class="message-list-wrapper">
+    <div class="message-list" ref="messageListRef">
+      <div v-if="isLoadingMessages && !messages.length" class="loading-state">
+        <div class="loading-spinner"></div>
+        <p>Loading messages...</p>
       </div>
 
-      <!-- Bottom scroll button -->
-      <button v-if="showScrollToBottom" @click="scrollToBottom" class="scroll-bottom-button">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </button>
-    </template>
+      <div v-else-if="!messages.length" class="empty-state">
+        <div class="empty-icon">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="40"
+            height="40"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <p>No messages yet</p>
+        <p class="help-text">Start the conversation by sending a message below.</p>
+      </div>
 
-    <!-- Reply box -->
+      <template v-else>
+        <div class="messages-container">
+          <template v-for="(message, index) in sortedMessages" :key="message.id">
+            <!-- Date separator -->
+            <div v-if="shouldShowDateSeparator(message, index)" class="date-separator">
+              <span>{{ formatMessageDate(message.timestamp) }}</span>
+            </div>
+
+            <!-- Message item -->
+            <MessageItem
+              :message="message"
+              :isOwn="isOwnMessage(message)"
+              :showAvatar="shouldShowAvatar(message, index)"
+              @reaction="handleReaction"
+              @reply="handleReply"
+            />
+          </template>
+        </div>
+
+        <!-- Bottom scroll button -->
+        <button v-if="showScrollToBottom" @click="scrollToBottom" class="scroll-bottom-button">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+      </template>
+    </div>
+
+    <!-- Reply box - moved outside message-list for proper positioning -->
     <div v-if="replyingTo" class="reply-box">
       <div class="reply-content">
         <div class="reply-indicator">
@@ -84,7 +86,10 @@
         </div>
         <div class="reply-text">
           <div class="reply-author">{{ replyingTo.sender.name }}</div>
-          <div class="reply-message">{{ truncateText(replyingTo.content, 50) }}</div>
+          <span v-if="!replyingTo.content.startsWith('/')" class="reply-message">{{
+            truncateText(replyingTo.content, 40)
+          }}</span>
+          <span v-else class="replied-message">🖼️ Photo</span>
         </div>
       </div>
       <button @click="cancelReply" class="cancel-reply-button">
@@ -108,7 +113,7 @@
 </template>
 
 <script>
-import { ref, computed, onMounted, onUpdated, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUpdated, watch, nextTick, onBeforeUnmount } from 'vue'
 import MessageItem from './MessageItem.vue'
 import { useAuthStore } from '@/store/auth'
 import { useMessageStore } from '@/store/messages'
@@ -138,6 +143,8 @@ export default {
     const showScrollToBottom = ref(false)
     const replyingTo = ref(null)
     const autoScrollToBottom = ref(true)
+    const isUserScrolling = ref(false)
+    const scrollTimeout = ref(null)
     const authStore = useAuthStore()
     const messageStore = useMessageStore()
 
@@ -201,8 +208,6 @@ export default {
       if (index === 0) return true
 
       const prevMessage = sortedMessages.value[index - 1]
-      // Assuming sender.ID is the correct field for comparing senders.
-      // Make sure it's consistent with your actual message object structure.
       return prevMessage.sender.id !== message.sender.id
     }
 
@@ -239,34 +244,48 @@ export default {
       if (!messageListRef.value) return false
 
       const { scrollTop, scrollHeight, clientHeight } = messageListRef.value
-      return scrollHeight - scrollTop - clientHeight < 10 // Small threshold for precision
+      return scrollHeight - scrollTop - clientHeight <= 20 // Increased threshold for better reliability
     }
 
     const handleScroll = () => {
       if (!messageListRef.value) return
 
+      // Clear previous timeout
+      if (scrollTimeout.value) {
+        clearTimeout(scrollTimeout.value)
+      }
+
+      // Mark as user scrolling
+      isUserScrolling.value = true
+
       const scrolledToBottom = isScrolledToBottom()
       showScrollToBottom.value = !scrolledToBottom
 
-      // Update auto-scroll behavior based on user's scroll position
+      // Update auto-scroll behavior
       if (scrolledToBottom) {
         autoScrollToBottom.value = true
       } else {
-        // Only disable auto-scroll if user intentionally scrolled up
+        // Disable auto-scroll when user scrolls away from bottom
         const { scrollTop, scrollHeight, clientHeight } = messageListRef.value
-        if (scrollTop < scrollHeight - clientHeight - 100) {
+        if (scrollTop < scrollHeight - clientHeight - 50) {
           autoScrollToBottom.value = false
         }
       }
+
+      // Reset user scrolling flag after a delay
+      scrollTimeout.value = setTimeout(() => {
+        isUserScrolling.value = false
+      }, 150)
     }
 
     const scrollToBottom = (force = false) => {
       if (!messageListRef.value) return
 
-      // Use nextTick to ensure DOM has been updated
-      nextTick(() => {
+      // Use requestAnimationFrame for smoother scrolling
+      requestAnimationFrame(() => {
         if (messageListRef.value && (autoScrollToBottom.value || force)) {
-          messageListRef.value.scrollTop = messageListRef.value.scrollHeight
+          const element = messageListRef.value
+          element.scrollTop = element.scrollHeight
           autoScrollToBottom.value = true
           showScrollToBottom.value = false
         }
@@ -305,46 +324,64 @@ export default {
     onMounted(() => {
       fetchMessages()
       if (messageListRef.value) {
-        messageListRef.value.addEventListener('scroll', handleScroll)
+        messageListRef.value.addEventListener('scroll', handleScroll, { passive: true })
 
-        // Initial scroll to bottom after a short delay to ensure content is rendered
-        setTimeout(() => {
-          scrollToBottom(true)
-        }, 100)
+        // Initial scroll to bottom after ensuring content is rendered
+        nextTick(() => {
+          setTimeout(() => {
+            scrollToBottom(true)
+          }, 100)
+        })
+      }
+    })
+
+    onBeforeUnmount(() => {
+      if (messageListRef.value) {
+        messageListRef.value.removeEventListener('scroll', handleScroll)
+      }
+      if (scrollTimeout.value) {
+        clearTimeout(scrollTimeout.value)
       }
     })
 
     onUpdated(() => {
-      if (props.isLoadingMessages) return
+      if (props.isLoadingMessages || isUserScrolling.value) return
 
       // Scroll to bottom for new messages if auto-scroll is enabled
       if (autoScrollToBottom.value) {
-        scrollToBottom()
+        nextTick(() => {
+          scrollToBottom()
+        })
       }
     })
 
-    // Watch for new messages
-    let previousMessageCount = 0
+    // Watch for new messages with improved logic
+    const previousMessageCount = ref(0)
     watch(
       () => sortedMessages.value?.length || 0,
-      (newCount, oldCount) => {
-        // Skip initial load
-        if (oldCount === 0 && newCount > 0) {
-          previousMessageCount = newCount
-          nextTick(() => scrollToBottom(true))
-          return
-        }
+      (newCount) => {
+        // Skip if no change or initial load
+        if (newCount === previousMessageCount.value) return
 
         // Handle new messages
-        if (newCount > previousMessageCount) {
-          if (autoScrollToBottom.value) {
-            scrollToBottom()
-          } else {
+        if (newCount > previousMessageCount.value && previousMessageCount.value > 0) {
+          if (autoScrollToBottom.value && !isUserScrolling.value) {
+            nextTick(() => {
+              scrollToBottom()
+            })
+          } else if (!autoScrollToBottom.value) {
             showScrollToBottom.value = true
           }
         }
 
-        previousMessageCount = newCount
+        // Handle initial load
+        if (previousMessageCount.value === 0 && newCount > 0) {
+          nextTick(() => {
+            scrollToBottom(true)
+          })
+        }
+
+        previousMessageCount.value = newCount
       },
       { immediate: true },
     )
@@ -356,7 +393,9 @@ export default {
         // When loading finishes and we have messages, scroll to bottom if needed
         if (wasLoading && !isLoading && sortedMessages.value.length > 0) {
           if (autoScrollToBottom.value) {
-            nextTick(() => scrollToBottom())
+            nextTick(() => {
+              scrollToBottom()
+            })
           }
         }
       },
@@ -366,7 +405,7 @@ export default {
       messageListRef,
       showScrollToBottom,
       replyingTo,
-      sortedMessages, // This will now contain the hydrated messages
+      sortedMessages,
       isOwnMessage,
       shouldShowAvatar,
       shouldShowDateSeparator,
@@ -382,14 +421,23 @@ export default {
 </script>
 
 <style scoped>
+.message-list-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-height: 0; /* Important for flex shrinking in parent container */
+  overflow: hidden; /* Prevent wrapper from overflowing */
+}
+
 .message-list {
   flex: 1;
   overflow-y: auto;
   padding: 1rem 1rem 0.5rem;
   display: flex;
   flex-direction: column;
-  position: relative;
   scroll-behavior: smooth;
+  min-height: 0; /* Important for flex shrinking */
 }
 
 .loading-state {
@@ -448,6 +496,7 @@ export default {
 .messages-container {
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 .date-separator {
@@ -488,16 +537,17 @@ export default {
   background-color: #2563eb;
 }
 
+/* Fixed reply box positioning - stays at bottom of MessageList component */
 .reply-box {
-  position: sticky;
-  bottom: 0;
   background-color: #f9fafb;
   border-top: 1px solid #e5e7eb;
   padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 -1rem -0.5rem;
+  flex-shrink: 0;
+  z-index: 5;
+  margin-top: auto; /* Push to bottom of wrapper */
 }
 
 .reply-content {
@@ -509,22 +559,27 @@ export default {
 .reply-indicator {
   color: #6b7280;
   margin-right: 0.5rem;
+  flex-shrink: 0;
 }
 
 .reply-text {
   flex: 1;
+  min-width: 0; /* Allow text to shrink */
 }
 
 .reply-author {
   font-size: 0.75rem;
   font-weight: 600;
   color: #374151;
+  margin-bottom: 0.125rem;
 }
 
-.reply-message {
+.reply-message,
+.replied-message {
   font-size: 0.75rem;
   color: #6b7280;
-  margin-top: 0.125rem;
+  display: block;
+  word-break: break-word;
 }
 
 .cancel-reply-button {
@@ -535,6 +590,7 @@ export default {
   padding: 0.25rem;
   border-radius: 0.25rem;
   transition: background-color 0.2s ease;
+  flex-shrink: 0;
 }
 
 .cancel-reply-button:hover {
